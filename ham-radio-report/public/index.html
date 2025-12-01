@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="业余无线电信号覆盖反馈系统 - DX/UHF通联测试">
+    <title>业余无线电信号反馈系统</title>
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <!-- Header Section -->
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="header-left">
+                    <h1 class="title">
+                        <span class="radio-icon">📡</span>
+                        业余无线电信号反馈系统
+                    </h1>
+                    <p class="subtitle">DX/UHF 通联测试信号覆盖范围收集</p>
+                </div>
+                <div class="header-right">
+                    <div class="station-info">
+                        <div class="info-item">
+                            <span class="label">台站呼号</span>
+                            <span class="value" id="stationCallsign">BG0XXX</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="label">工作频段</span>
+                            <span class="value" id="stationBand">UHF/VHF</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Map Section -->
+    <section class="map-section">
+        <div class="container">
+            <div class="section-header">
+                <h2>📍 信号覆盖地图</h2>
+                <div class="map-stats">
+                    <span class="stat-item">
+                        <strong id="reportCount">0</strong> 个报告
+                    </span>
+                    <span class="stat-item">
+                        最远距离: <strong id="maxDistance">0</strong> km
+                    </span>
+                </div>
+            </div>
+            <div id="map" class="map-container"></div>
+        </div>
+    </section>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="container">
+            <div class="content-grid">
+                <!-- Report Form -->
+                <div class="card form-card">
+                    <div class="card-header">
+                        <h3>📝 提交信号报告</h3>
+                        <p class="card-description">如果您收到我的信号，请填写以下信息</p>
+                    </div>
+                    <form id="reportForm" class="report-form">
+                        <div class="form-group">
+                            <label for="callsign">
+                                您的呼号 <span class="required">*</span>
+                            </label>
+                            <input type="text" id="callsign" name="callsign" placeholder="例如: BG0XXX" required
+                                pattern="[A-Z0-9]+" class="form-input">
+                            <span class="form-hint">请输入您的业余无线电呼号</span>
+                        </div>
+
+                        <div class="form-group">
+                            <label>位置信息 <span class="required">*</span></label>
+                            <div class="location-controls">
+                                <button type="button" id="getLocationBtn" class="btn btn-secondary">
+                                    <span class="btn-icon">📍</span>
+                                    自动获取位置
+                                </button>
+                                <span class="location-status" id="locationStatus"></span>
+                            </div>
+                            <div class="coordinates-grid">
+                                <div class="form-group-inline">
+                                    <label for="latitude">纬度</label>
+                                    <input type="number" id="latitude" name="latitude" step="0.000001"
+                                        placeholder="例如: 39.9042" required class="form-input">
+                                </div>
+                                <div class="form-group-inline">
+                                    <label for="longitude">经度</label>
+                                    <input type="number" id="longitude" name="longitude" step="0.000001"
+                                        placeholder="例如: 116.4074" required class="form-input">
+                                </div>
+                            </div>
+                            <div class="grid-display">
+                                <label for="gridLocator">Maidenhead网格定位符</label>
+                                <input type="text" id="gridLocator" name="gridLocator" placeholder="例如: OM89vc" readonly
+                                    class="form-input grid-input">
+                                <span class="form-hint">🔒 隐私保护: 仅显示大致区域（约3x4公里）</span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="signalStrength">信号强度</label>
+                            <div class="rating-container">
+                                <div class="star-rating" id="starRating">
+                                    <span class="star" data-value="1">★</span>
+                                    <span class="star" data-value="2">★</span>
+                                    <span class="star" data-value="3">★</span>
+                                    <span class="star" data-value="4">★</span>
+                                    <span class="star" data-value="5">★</span>
+                                </div>
+                                <input type="hidden" id="signalStrength" name="signalStrength" value="0">
+                                <span class="rating-text" id="ratingText">未评分</span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="notes">备注信息</label>
+                            <textarea id="notes" name="notes" rows="3" placeholder="例如：音质清晰，信号稳定..."
+                                class="form-textarea"></textarea>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary btn-submit">
+                            <span class="btn-icon">✉️</span>
+                            提交报告
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Reports List -->
+                <div class="card reports-card">
+                    <div class="card-header">
+                        <h3>📊 收到的报告</h3>
+                    </div>
+                    <div class="reports-list" id="reportsList">
+                        <div class="empty-state">
+                            <div class="empty-icon">📭</div>
+                            <p>暂无报告数据</p>
+                            <p class="empty-hint">等待信号反馈...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p>
+                业余无线电信号反馈系统 v2.0 |
+                云端数据库存储 + Maidenhead隐私保护 |
+                <a href="/admin" target="_blank">管理员登录</a>
+            </p>
+        </div>
+        <!DOCTYPE html>
+        <html lang="zh-CN">
+
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <meta name="description" content="业余无线电信号覆盖反馈系统 - DX/UHF通联测试">
+            <title>业余无线电信号反馈系统</title>
+
+            <!-- Leaflet CSS -->
+            <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+                integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+
+            <!-- Google Fonts -->
+            <link rel="preconnect" href="https://fonts.googleapis.com">
+            <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+            <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+                rel="stylesheet">
+
+            <!-- Custom CSS -->
+            <link rel="stylesheet" href="styles.css">
+        </head>
+
+        <body>
+            <!-- Header Section -->
+            <header class="header">
+                <div class="container">
+                    <div class="header-content">
+                        <div class="header-left">
+                            <h1 class="title">
+                                <span class="radio-icon">📡</span>
+                                业余无线电信号反馈系统
+                            </h1>
+                            <p class="subtitle">DX/UHF 通联测试信号覆盖范围收集</p>
+                        </div>
+                        <div class="header-right">
+                            <div class="station-info">
+                                <div class="info-item">
+                                    <span class="label">台站呼号</span>
+                                    <span class="value" id="stationCallsign">BG0XXX</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="label">工作频段</span>
+                                    <span class="value" id="stationBand">UHF/VHF</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Map Section -->
+            <section class="map-section">
+                <div class="container">
+                    <div class="section-header">
+                        <h2>📍 信号覆盖地图</h2>
+                        <div class="map-stats">
+                            <span class="stat-item">
+                                <strong id="reportCount">0</strong> 个报告
+                            </span>
+                            <span class="stat-item">
+                                最远距离: <strong id="maxDistance">0</strong> km
+                            </span>
+                        </div>
+                    </div>
+                    <div id="map" class="map-container"></div>
+                </div>
+            </section>
+
+            <!-- Main Content -->
+            <main class="main-content">
+                <div class="container">
+                    <div class="content-grid">
+                        <!-- Report Form -->
+                        <div class="card form-card">
+                            <div class="card-header">
+                                <h3>📝 提交信号报告</h3>
+                                <p class="card-description">如果您收到我的信号，请填写以下信息</p>
+                            </div>
+                            <form id="reportForm" class="report-form">
+                                <div class="form-group">
+                                    <label for="callsign">
+                                        您的呼号 <span class="required">*</span>
+                                    </label>
+                                    <input type="text" id="callsign" name="callsign" placeholder="例如: BG0XXX" required
+                                        pattern="[A-Z0-9]+" class="form-input">
+                                    <span class="form-hint">请输入您的业余无线电呼号</span>
+                                </div>
+
+                                <div class="form-group">
+                                    <label>位置信息 <span class="required">*</span></label>
+                                    <div class="location-controls">
+                                        <button type="button" id="getLocationBtn" class="btn btn-secondary">
+                                            <span class="btn-icon">📍</span>
+                                            自动获取位置
+                                        </button>
+                                        <span class="location-status" id="locationStatus"></span>
+                                    </div>
+                                    <div class="coordinates-grid">
+                                        <div class="form-group-inline">
+                                            <label for="latitude">纬度</label>
+                                            <input type="number" id="latitude" name="latitude" step="0.000001"
+                                                placeholder="例如: 39.9042" required class="form-input">
+                                        </div>
+                                        <div class="form-group-inline">
+                                            <label for="longitude">经度</label>
+                                            <input type="number" id="longitude" name="longitude" step="0.000001"
+                                                placeholder="例如: 116.4074" required class="form-input">
+                                        </div>
+                                    </div>
+                                    <div class="grid-display">
+                                        <label for="gridLocator">Maidenhead网格定位符</label>
+                                        <input type="text" id="gridLocator" name="gridLocator" placeholder="例如: OM89vc"
+                                            readonly class="form-input grid-input">
+                                        <span class="form-hint">🔒 隐私保护: 仅显示大致区域（约3x4公里）</span>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="signalStrength">信号强度</label>
+                                    <div class="rating-container">
+                                        <div class="star-rating" id="starRating">
+                                            <span class="star" data-value="1">★</span>
+                                            <span class="star" data-value="2">★</span>
+                                            <span class="star" data-value="3">★</span>
+                                            <span class="star" data-value="4">★</span>
+                                            <span class="star" data-value="5">★</span>
+                                        </div>
+                                        <input type="hidden" id="signalStrength" name="signalStrength" value="0">
+                                        <span class="rating-text" id="ratingText">未评分</span>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="notes">备注信息</label>
+                                    <textarea id="notes" name="notes" rows="3" placeholder="例如：音质清晰，信号稳定..."
+                                        class="form-textarea"></textarea>
+                                </div>
+
+                                <button type="submit" class="btn btn-primary btn-submit">
+                                    <span class="btn-icon">✉️</span>
+                                    提交报告
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Reports List -->
+                        <div class="card reports-card">
+                            <div class="card-header">
+                                <h3>📊 收到的报告</h3>
+                            </div>
+                            <div class="reports-list" id="reportsList">
+                                <div class="empty-state">
+                                    <div class="empty-icon">📭</div>
+                                    <p>暂无报告数据</p>
+                                    <p class="empty-hint">等待信号反馈...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+
+            <!-- Footer -->
+            <footer class="footer">
+                <div class="container">
+                    <p>
+                        业余无线电信号反馈系统 v2.0 |
+                        云端数据库存储 + Maidenhead隐私保护 |
+                        <a href="/admin" target="_blank">管理员登录</a>
+                    </p>
+                </div>
+            </footer>
+
+            <!-- Leaflet JS -->
+            <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+                integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+            <!-- Maidenhead Library -->
+            <script src="maidenhead.js"></script>
+
+            <!-- Custom JS -->
+            <script src="app.js?v=2.1"></script>
+        </body>
+
+        </html>

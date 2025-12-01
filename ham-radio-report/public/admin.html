@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>后台管理 - 业余无线电信号反馈系统</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="styles.css">
+
+    <style>
+        .admin-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .login-card {
+            max-width: 400px;
+            margin: 100px auto;
+        }
+
+        .dashboard {
+            display: none;
+            /* 默认隐藏，登录后显示 */
+        }
+
+        .admin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .admin-toolbar {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--bg-secondary);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+        }
+
+        .data-table th,
+        .data-table td {
+            padding: 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .data-table th {
+            background: var(--bg-tertiary);
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .data-table tr:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .action-btn {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.8rem;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .status-online {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="admin-container">
+        <!-- 登录界面 -->
+        <div id="loginSection" class="card login-card">
+            <div class="card-header">
+                <h3>🔐 管理员登录</h3>
+            </div>
+            <form id="loginForm" class="report-form">
+                <div class="form-group">
+                    <label for="password">密码</label>
+                    <input type="password" id="password" class="form-input" placeholder="请输入管理员密码" required>
+                </div>
+                <button type="submit" class="btn btn-primary btn-submit">登录</button>
+            </form>
+        </div>
+
+        <!-- 仪表板 -->
+        <div id="dashboardSection" class="dashboard">
+            <div class="admin-header">
+                <h2>📡 后台管理系统</h2>
+                <div class="user-info">
+                    <span class="status-badge status-online">管理员在线</span>
+                    <button id="logoutBtn" class="btn btn-text">退出登录</button>
+                </div>
+            </div>
+
+            <div class="admin-toolbar">
+                <button id="refreshBtn" class="btn btn-secondary">🔄 刷新数据</button>
+                <button id="exportCsvBtn" class="btn btn-primary">⬇️ 导出CSV</button>
+                <a href="/" class="btn btn-text" target="_blank">🏠 返回前台</a>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>所有报告管理</h3>
+                    <span id="totalCount" class="text-muted">共 0 条</span>
+                </div>
+                <div style="overflow-x: auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>呼号</th>
+                                <th>网格</th>
+                                <th>距离</th>
+                                <th>信号</th>
+                                <th>时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reportsTableBody">
+                            <!-- 数据将通过JS插入 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="admin.js"></script>
+</body>
+
+</html>

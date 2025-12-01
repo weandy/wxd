@@ -1,0 +1,27 @@
+{
+  "name": "ham-radio-report",
+  "version": "2.0.0",
+  "description": "业余无线电信号反馈系统 - 升级版",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node server/server.js"
+  },
+  "keywords": [
+    "ham-radio",
+    "signal-report",
+    "maidenhead",
+    "amateur-radio"
+  ],
+  "author": "BD6KFP",
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^9.2.2",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "express-session": "^1.17.3",
+    "socket.io": "^4.8.1",
+    "uuid": "^9.0.1"
+  }
+}
