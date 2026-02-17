@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BSHT Web 管理平台</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <header class="navbar">
+            <div class="navbar-brand">
+                <h1>📻 BSHT 管理平台</h1>
+            </div>
+            <div class="navbar-status">
+                <span id="connection-status" class="status-badge offline">离线</span>
+                <span id="bot-state" class="status-badge stopped">已停止</span>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <section class="control-panel">
+                <div class="card">
+                    <h2>🤖 Bot 控制</h2>
+                    <div class="control-buttons">
+                        <button id="btn-start-bot" class="btn btn-success">启动 Bot</button>
+                        <button id="btn-stop-bot" class="btn btn-danger">停止 Bot</button>
+                    </div>
+                    <div class="bot-info">
+                        <p>连接频道: <strong id="current-channel">未连接</strong></p>
+                        <p>当前说话者: <strong id="current-speakers">-</strong></p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>🎤 PTT 发射</h2>
+                    <div class="ptt-control">
+                        <button id="btn-ptt" class="btn-ptt">
+                            <span class="ptt-icon">📡</span>
+                            <span class="ptt-text">按住说话</span>
+                        </button>
+                        <p class="ptt-hint">按住按钮开始发射，松开停止</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>📡 频道管理</h2>
+                    <div class="channel-selector">
+                        <select id="channel-select">
+                            <option value="">选择频道...</option>
+                        </select>
+                        <button id="btn-join-channel" class="btn btn-primary">加入频道</button>
+                        <button id="btn-leave-channel" class="btn btn-secondary">离开频道</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="recordings-panel">
+                <div class="card">
+                    <div class="panel-header">
+                        <h2>🎙️ 录音记录</h2>
+                        <div class="filter-controls">
+                            <select id="filter-channel">
+                                <option value="all">所有频道</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="recordings-table-container">
+                        <table class="recordings-table">
+                            <thead>
+                                <tr>
+                                    <th>时间</th>
+                                    <th>说话者</th>
+                                    <th>时长</th>
+                                    <th>丢包率</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recordings-list">
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="pagination">
+                        <button id="btn-load-more" class="btn btn-outline">加载更多</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div id="audio-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="audio-modal-title">播放录音</h3>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <audio id="audio-player" controls></audio>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
