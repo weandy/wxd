@@ -2,6 +2,8 @@
 import os
 import sys
 import logging
+import threading
+import time
 from pathlib import Path
 from flask import Flask, render_template
 from flask_socketio import SocketIO
@@ -64,15 +66,9 @@ def create_app() -> Flask:
     def index():
         return render_template('index.html')
 
-    @app.before_request
-    def startup_bot():
-        if not hasattr(app, '_bot_started'):
-            logger.info("自动启动 Bot 服务...")
-            if bot_service.start():
-                logger.info("Bot 启动成功")
-            else:
-                logger.error("Bot 启动失败")
-            app._bot_started = True
+    @app.route('/health')
+    def health():
+        return {'status': 'ok', 'bot_state': bot_service.get_status().state.value}
 
     app.bot_service = bot_service
     app.socketio = socketio
@@ -80,12 +76,36 @@ def create_app() -> Flask:
     return app, socketio
 
 
+def start_botInBackground(bot_service: BotService):
+    """在后台线程启动 Bot"""
+    time.sleep(1)  # 等待服务器完全启动
+    try:
+        logger.info("后台启动 Bot 服务...")
+        if bot_service.start():
+            logger.info("Bot 启动成功")
+        else:
+            logger.error("Bot 启动失败")
+    except Exception as e:
+        logger.error(f"Bot 启动异常: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
 def main():
     Path(Config.RECORDINGS_PATH).mkdir(parents=True, exist_ok=True)
 
     app, socketio = create_app()
 
+    # 在后台线程启动 Bot
+    bot_thread = threading.Thread(
+        target=start_botInBackground,
+        args=(app.bot_service,),
+        daemon=True
+    )
+    bot_thread.start()
+
     logger.info(f"启动服务器: {Config.HOST}:{Config.PORT}")
+    logger.info("访问 http://localhost:5000 打开管理界面")
 
     try:
         socketio.run(

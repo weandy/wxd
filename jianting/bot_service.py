@@ -131,17 +131,14 @@ class BotService:
 
     def join_channel(self, channel_id: int, passcode: int = 0) -> bool:
         try:
-            result = self.client.get_channel_connection_params(channel_id, passcode)
+            from bsht_client import AudioStreamListener
+            self._listener = AudioStreamListener(self.client)
+
+            result = self._listener.connect(channel_id)
             if not result.success:
+                logger.error(f"连接频道失败: {result.message}")
                 return False
 
-            from bsht_client import AudioStreamListener
-            params = result.data
-            self._listener = AudioStreamListener(
-                self.client,
-                server_ip=params.server_ip,
-                server_port=params.server_port
-            )
             self._listener.start()
 
             with self._lock:
@@ -169,9 +166,9 @@ class BotService:
         self._event_handler.on_bot_state_changed(self.get_status())
 
     def get_channels(self) -> List[Channel]:
-        result = self.client.get_channels()
+        result = self.client.get_user_channels()
         if result.success:
-            return [Channel(channel_id=ch.id, name=ch.name) for ch in result.data]
+            return [Channel(channel_id=ch.channel_id, name=ch.channel_name) for ch in result.data]
         return []
 
     def start_transmit(self) -> bool:
