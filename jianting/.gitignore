@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+recordings/
+audio_*.raw
+*.log
+.vscode/
+.idea/
+.git/
+credentials.json
+.worktrees/
