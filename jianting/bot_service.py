@@ -1,15 +1,11 @@
 # bot_service.py
 import threading
 import logging
-import socket
 from typing import Optional, List, Dict
 from interfaces import IEventHandler, BotState, BotStatus, IRecordingManager
 from database import Channel, Recording, ChannelRepository, RecordingRepository
 
 logger = logging.getLogger(__name__)
-
-# 设置全局 socket 超时，避免网络请求卡住
-socket.setdefaulttimeout(10)
 
 
 class DefaultEventHandler(IEventHandler):
@@ -78,9 +74,14 @@ class BotService:
     @property
     def client(self):
         if self._client is None:
-            from bsht_client import BSHTClient
+            from bsht_client import BSHTClient, GrpcClient
+            # 创建带短超时的 GrpcClient
+            grpc = GrpcClient(timeout=10.0)
             self._client = BSHTClient(auto_refresh_token=True)
+            # 替换内部的 grpc 客户端
+            self._client._grpc = grpc
             self._client.set_token_refresh_callback(self._on_token_refreshed)
+            logger.info("BSHTClient 创建完成，超时设置为 10 秒")
         return self._client
 
     def start(self) -> bool:
