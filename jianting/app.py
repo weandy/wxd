@@ -6,6 +6,10 @@ from pathlib import Path
 from flask import Flask, render_template
 from flask_socketio import SocketIO
 from flask_cors import CORS
+from dotenv import load_dotenv
+
+# 加载 .env 文件
+load_dotenv()
 
 from config import Config
 from database import Database, ChannelRepository, RecordingRepository
