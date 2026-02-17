@@ -92,8 +92,7 @@ def main():
             app,
             host=Config.HOST,
             port=Config.PORT,
-            debug=Config.DEBUG,
-            allow_unsafe_werkzeug=True
+            debug=Config.DEBUG
         )
     except KeyboardInterrupt:
         logger.info("收到退出信号，正在关闭...")
