@@ -438,12 +438,11 @@ class BotServer:
 
 
 if __name__ == "__main__":
-    # 从环境变量读取配置
-    import os
-    USERNAME = os.getenv('BSHT_USERNAME', 'bswxd')
-    PASSWORD = os.getenv('BSHT_PASSWORD', 'BsWxd2026')
-    CHANNEL_ID = int(os.getenv('DEFAULT_CHANNEL_ID', '28951'))
-    CHANNEL_PASSCODE = int(os.getenv('DEFAULT_CHANNEL_PASSCODE', '0'))
+    # 配置
+    USERNAME = "bswxd"
+    PASSWORD = "BsWxd2026"
+    CHANNEL_ID = 28951  # 目标频道ID
+    CHANNEL_PASSCODE = 0 # 频道密码 (如果有)
 
     bot = BotServer(USERNAME, PASSWORD, CHANNEL_ID, CHANNEL_PASSCODE)
     try:
