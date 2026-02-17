@@ -1,11 +1,15 @@
 # bot_service.py
 import threading
 import logging
+import socket
 from typing import Optional, List, Dict
 from interfaces import IEventHandler, BotState, BotStatus, IRecordingManager
 from database import Channel, Recording, ChannelRepository, RecordingRepository
 
 logger = logging.getLogger(__name__)
+
+# 设置全局 socket 超时，避免网络请求卡住
+socket.setdefaulttimeout(10)
 
 
 class DefaultEventHandler(IEventHandler):
@@ -86,15 +90,21 @@ class BotService:
             self._update_state(BotState.STARTING)
 
         try:
+            logger.info("Bot 开始启动...")
             if not self._login():
+                logger.error("Bot 登录失败")
                 self._update_state(BotState.ERROR, "登录失败")
                 return False
 
+            logger.info("Bot 登录成功")
             self._join_auto_channels()
             self._update_state(BotState.RUNNING)
+            logger.info("Bot 启动完成")
             return True
         except Exception as e:
             logger.error(f"启动失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             self._update_state(BotState.ERROR, str(e))
             return False
 
@@ -190,11 +200,18 @@ class BotService:
         return True
 
     def _login(self) -> bool:
-        if self.client.load_credentials():
-            if self.client.load_profile().success:
-                return True
+        logger.info(f"尝试登录用户: {self._username}")
 
+        if self.client.load_credentials():
+            logger.info("发现已保存的凭证，尝试加载...")
+            if self.client.load_profile().success:
+                logger.info("使用已保存的凭证登录成功")
+                return True
+            logger.info("已保存的凭证无效，将重新登录")
+
+        logger.info("开始登录...")
         result = self.client.login(self._username, self._password)
+        logger.info(f"登录结果: success={result.success}, message={result.message}")
         if result.success:
             self.client.load_profile()
             self.client.save_credentials()
