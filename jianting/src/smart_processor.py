@@ -55,12 +55,14 @@ class AIResult:
     """AI识别结果"""
     success: bool
     signal_type: str  # CQ, QSO, NOISE, UNKNOWN
-    content: str
+    content: str  # SenseVoice原始识别结果
     content_normalized: str
     user_id: str
     signal_quality: str
     confidence: float
     error: str = ""
+    sensevoice_content: str = ""  # SenseVoice原始结果
+    expert_content: str = ""  # Qwen专家模型原始结果
 
 
 class AudioQualityAnalyzer:
@@ -436,6 +438,114 @@ class AIClient:
                 return False, f"API错误: {response.status_code}"
         except Exception as e:
             return False, str(e)
+    
+    def call_expert_asr(self, audio_path: str) -> Tuple[bool, str]:
+        """调用专家模型识别音频 - 使用Qwen模型直接识别语音"""
+        try:
+            import requests
+            import base64
+            
+            # 读取音频文件
+            with open(audio_path, 'rb') as f:
+                audio_data = f.read()
+            
+            url = f"{self.base_url}/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            # 使用专家模型进行语音识别
+            asr_prompt = self.prompts.get("asr_prompt", "你是HAM语音识别助手。请忽略背景噪音，尽力识别所有中文对话、字母和数字。直接输出文字，不要其他内容。")
+            
+            payload = {
+                "model": self.expert_model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "audio", "audio_url": {"url": "data:audio/wav;base64," + base64.b64encode(audio_data).decode()}},
+                            {"type": "text", "text": asr_prompt}
+                        ]
+                    }
+                ],
+                "max_tokens": 1024
+            }
+            
+            response = requests.post(url, json=payload, headers=headers, timeout=120)
+            
+            if response.status_code == 200:
+                result = response.json()
+                content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                return True, content
+            else:
+                return False, f"API错误: {response.status_code}"
+        except Exception as e:
+            return False, str(e)
+    
+    def call_final_analysis(self, audio_path: str, sensevoice_result: str, expert_result: str) -> Tuple[bool, str]:
+        """最终综合分析 - 综合SenseVoice和专家模型的识别结果"""
+        try:
+            import requests
+            
+            url = f"{self.base_url}/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            # 从加载的配置中获取prompt
+            expert_config = self.prompts.get("expert_analysis", {})
+            system_prompt = expert_config.get("system_prompt", "你是一个业余无线电通信专家。")
+            
+            # 获取纠正规则
+            correction_rules = expert_config.get("correction_rules", {})
+            common_mistakes = correction_rules.get("common_mistakes", [])
+            number_mappings = correction_rules.get("number_mappings", {})
+            
+            # 构建纠正规则文本
+            corrections_text = "\n".join([f'"{m["from"]}" → "{m["to"]}"' for m in common_mistakes[:10]])
+            numbers_text = ", ".join([f'"{k}"={v}' for k,v in number_mappings.items()])
+            
+            output_format = expert_config.get("output_format", {})
+            
+            # 构建综合分析的prompt
+            prompt = f"""{system_prompt}
+
+## 识别结果对比:
+- SenseVoice识别: "{sensevoice_result}"
+- Qwen专家模型识别: "{expert_result}"
+
+## 常见错误纠正规则 (重要!):
+{corrections_text}
+
+## 数字映射:
+{numbers_text}
+
+## 任务:
+请综合以上两个识别结果，判断哪个更准确，或者结合两者的优点给出最终识别结果。识别内容应为业余无线电通联语音。
+
+## 输出格式:
+{json.dumps(output_format, ensure_ascii=False)}
+
+只返回JSON，不要其他内容。"""
+            
+            payload = {
+                "model": self.expert_model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 512
+            }
+            
+            response = requests.post(url, json=payload, headers=headers, timeout=120)
+            
+            if response.status_code == 200:
+                result = response.json()
+                content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                return True, content
+            else:
+                return False, f"API错误: {response.status_code}"
+        except Exception as e:
+            return False, str(e)
 
 
 class SmartAudioProcessor:
@@ -511,19 +621,31 @@ class SmartAudioProcessor:
             # 5. 选择要使用的音频
             audio_to_use = temp_processed if use_processed else temp_original
             
-            # 6. ASR识别
-            success, asr_text = self.ai.call_asr(audio_to_use)
+            # 6. 三级处理: SenseVoice + Qwen专家模型 + 综合分析
+            
+            # 6.1 SenseVoice ASR识别
+            success, sensevoice_text = self.ai.call_asr(audio_to_use)
             if not success:
                 return (
-                    AIResult(success=False, signal_type="UNKNOWN", content=asr_text,
+                    AIResult(success=False, signal_type="UNKNOWN", content=sensevoice_text,
                             content_normalized="", user_id="", signal_quality="",
-                            confidence=0.0, error=asr_text),
+                            confidence=0.0, error=sensevoice_text),
                     quality,
                     suggestion
                 )
             
-            # 7. 专家分析
-            success, analysis = self.ai.call_expert_analysis(audio_to_use, asr_text)
+            # 6.2 Qwen专家模型识别 (二级处理)
+            success, expert_text = self.ai.call_expert_asr(audio_to_use)
+            if not success:
+                # 如果专家模型识别失败，回退到只用SenseVoice
+                expert_text = sensevoice_text
+            
+            # 6.3 最终综合分析 (三级处理)
+            success, analysis = self.ai.call_final_analysis(audio_to_use, sensevoice_text, expert_text)
+            
+            # 记录原始识别结果
+            asr_text = sensevoice_text
+            expert_asr_text = expert_text
             
             ai_result = AIResult(
                 success=True,
@@ -532,7 +654,9 @@ class SmartAudioProcessor:
                 content_normalized=asr_text,
                 user_id="",
                 signal_quality="5",
-                confidence=0.5
+                confidence=0.5,
+                sensevoice_content=sensevoice_text,
+                expert_content=expert_text
             )
             
             if success:

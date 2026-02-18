@@ -173,11 +173,14 @@ class RecordingRecognizer:
             
             recognize_duration = time.time() - start_time_recognize
             
+            # 获取使用的专家模型
+            expert_model = self.dsp_config.get("expert_model", "Qwen/Qwen2.5-7B-Instruct")
+            
             # 保存原始ASR结果用于显示
             asr_raw = ai_result.content
             
             # 打印识别结果
-            self._print_result(ai_result, quality, suggestion, user_name, recorder_type, asr_raw, recognize_duration, start_time)
+            self._print_result(ai_result, quality, suggestion, user_name, recorder_type, asr_raw, recognize_duration, start_time, expert_model)
             
             # 更新数据库
             if self._db:
@@ -218,7 +221,7 @@ class RecordingRecognizer:
             self._processing = False
         self._process_next()
     
-    def _print_result(self, ai_result, quality, suggestion, user_name, recorder_type, asr_raw="", recognize_duration=0.0, start_time=""):
+    def _print_result(self, ai_result, quality, suggestion, user_name, recorder_type, asr_raw="", recognize_duration=0.0, start_time="", expert_model=""):
         """打印识别结果到控制台"""
         type_icon = {"CQ": "📡", "QSO": "📱", "CQ73": "📡", "QRZ": "📶", "NOISE": "🔇", "UNKNOWN": "❓"}
         icon = type_icon.get(ai_result.signal_type, "❓")
@@ -228,6 +231,10 @@ class RecordingRecognizer:
         time_info = f"🕐 {start_time}" if start_time else ""
         print(f"🎙️ [{recorder_type}] {user_name} {time_info}")
         print("-" * 60)
+        
+        # 显示使用的模型
+        if expert_model:
+            print(f"   🤖 专家模型: {expert_model}")
         
         # 音频质量
         print(f"   📊 SNR: {quality.snr_db:.1f} dB | 时长: {quality.duration:.1f}s")
@@ -239,9 +246,13 @@ class RecordingRecognizer:
         # DSP处理
         print(f"   🔊 DSP: {'是' if suggestion.needed else '否'} ({suggestion.level})")
         
-        # 原始ASR识别结果
-        if asr_raw:
-            print(f"   🎯 ASR: {asr_raw}")
+        # SenseVoice识别结果
+        if ai_result.sensevoice_content:
+            print(f"   🎯 SenseVoice: {ai_result.sensevoice_content}")
+        
+        # Qwen专家模型识别结果
+        if ai_result.expert_content:
+            print(f"   🧠 Qwen识别: {ai_result.expert_content}")
         
         # 识别结果 - 优先使用规范化后的内容
         if ai_result.success and ai_result.content:
