@@ -743,19 +743,12 @@ class SmartAudioProcessor:
                 )
             logger.info(f"[识别] SenseVoice结果: {sensevoice_text[:50]}...")
             
-            # 6.2 Qwen专家模型识别 (二级处理)
-            logger.info("[识别] 调用 Qwen 专家模型...")
-            success, expert_text = self.ai.call_expert_asr(audio_to_use)
-            if not success:
-                # 如果专家模型识别失败，回退到只用SenseVoice
-                logger.warning(f"[识别] Qwen识别失败，回退到SenseVoice: {expert_text}")
-                expert_text = sensevoice_text
-            else:
-                # 检查两个结果是否一致
-                if sensevoice_text.strip() == expert_text.strip():
-                    logger.info("[识别] SenseVoice和Qwen结果一致")
-                else:
-                    logger.info(f"[识别] 两个模型结果不同:\n  SV: {sensevoice_text[:50]}...\n  QW: {expert_text[:50]}...")
+            # 6.2 最终综合分析 (使用Qwen对SenseVoice结果进行文本分析和纠错)
+            # 不再调用Qwen做语音识别（SiliconFlow的Qwen不支持音频URL输入）
+            # 直接使用SenseVoice的结果进行专家分析
+            expert_text = sensevoice_text
+            
+            logger.info("[识别] 调用 final_analysis 进行文本分析...")
             
             # 6.3 最终综合分析 (三级处理)
             # 无论两个识别结果是否相同，都需要专家分析确认信号类型、提取呼号等
