@@ -462,18 +462,20 @@ def create_recording_callback(recognizer, channel_id):
 
 
 if __name__ == "__main__":
-    # 配置
-    USERNAME = "bswxd"
-    PASSWORD = "BsWxd2026"
-    CHANNEL_ID = 62793  # 目标频道ID
-    CHANNEL_PASSCODE = 0 # 频道密码 (如果有)
-
-    # 尝试加载环境变量配置
+    # 加载环境变量配置
     import os
     try:
         from src.config import load_env_file, get_config
         load_env_file(".env")
         config = get_config()
+        
+        # 优先使用环境变量中的配置
+        USERNAME = os.getenv("BSHT_USERNAME", config.bsht.username) or "bswxd"
+        PASSWORD = os.getenv("BSHT_PASSWORD", config.bsht.password) or "BsWxd2026"
+        CHANNEL_ID = int(os.getenv("BSHT_CHANNEL_ID", config.bsht.channel_id or "0")) or 62793
+        CHANNEL_PASSCODE = int(os.getenv("BSHT_CHANNEL_PASSCODE", config.bsht.channel_passcode or "0"))
+        
+        print(f"📋 配置加载: 用户={USERNAME}, 频道={CHANNEL_ID}")
         
         if config.dsp.enabled and config.api.siliconflow_key:
             # 创建识别器
