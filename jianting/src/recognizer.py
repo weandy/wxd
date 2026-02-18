@@ -177,7 +177,7 @@ class RecordingRecognizer:
             asr_raw = ai_result.content
             
             # 打印识别结果
-            self._print_result(ai_result, quality, suggestion, user_name, recorder_type, asr_raw, recognize_duration)
+            self._print_result(ai_result, quality, suggestion, user_name, recorder_type, asr_raw, recognize_duration, start_time)
             
             # 更新数据库
             if self._db:
@@ -218,13 +218,15 @@ class RecordingRecognizer:
             self._processing = False
         self._process_next()
     
-    def _print_result(self, ai_result, quality, suggestion, user_name, recorder_type, asr_raw="", recognize_duration=0.0):
+    def _print_result(self, ai_result, quality, suggestion, user_name, recorder_type, asr_raw="", recognize_duration=0.0, start_time=""):
         """打印识别结果到控制台"""
         type_icon = {"CQ": "📡", "QSO": "📱", "CQ73": "📡", "QRZ": "📶", "NOISE": "🔇", "UNKNOWN": "❓"}
         icon = type_icon.get(ai_result.signal_type, "❓")
         
         print("\n" + "=" * 60)
-        print(f"🎙️ [{recorder_type}] {user_name}")
+        # 显示时间戳和类型
+        time_info = f"🕐 {start_time}" if start_time else ""
+        print(f"🎙️ [{recorder_type}] {user_name} {time_info}")
         print("-" * 60)
         
         # 音频质量

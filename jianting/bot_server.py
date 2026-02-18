@@ -488,9 +488,13 @@ if __name__ == "__main__":
                     "algorithm": config.dsp.algorithm,
                     "agc_mode": config.dsp.agc_mode,
                     "snr_threshold_high": config.dsp.snr_threshold_high,
-                    "snr_threshold_low": config.dsp.snr_threshold_low
+                    "snr_threshold_low": config.dsp.snr_threshold_low,
+                    "expert_model": config.api.expert_model if config.api.expert_model_enabled else "Qwen/Qwen2.5-7B-Instruct"
                 }
             )
+            
+            if config.api.expert_model_enabled:
+                print(f"🤖 专家模型已启用: {config.api.expert_model}")
             
             # 设置数据库
             from src.database import get_database

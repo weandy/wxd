@@ -261,9 +261,11 @@ class DSPProcessor:
 class AIClient:
     """AI识别客户端"""
     
-    def __init__(self, api_key: str, base_url: str = "https://api.siliconflow.cn/v1"):
+    def __init__(self, api_key: str, base_url: str = "https://api.siliconflow.cn/v1", 
+                 expert_model: str = "Qwen/Qwen2.5-7B-Instruct"):
         self.api_key = api_key
         self.base_url = base_url
+        self.expert_model = expert_model
         self.prompts = self._load_prompts()
     
     def _load_prompts(self) -> Dict[str, Any]:
@@ -417,7 +419,14 @@ class AIClient:
 
 只返回JSON，不要其他内容。"""
             
-            response = requests.post(url, json=payload, headers=headers, timeout=60)
+            # 使用配置的专家模型
+            payload = {
+                "model": self.expert_model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 512
+            }
+            
+            response = requests.post(url, json=payload, headers=headers, timeout=120)
             
             if response.status_code == 200:
                 result = response.json()
@@ -442,7 +451,10 @@ class SmartAudioProcessor:
             algorithm=self.dsp_config.get("algorithm", "timedomain"),
             agc_mode=self.dsp_config.get("agc_mode", "webrtc")
         )
-        self.ai = AIClient(api_key)
+        
+        # 专家模型配置
+        expert_model = self.dsp_config.get("expert_model", "Qwen/Qwen2.5-7B-Instruct")
+        self.ai = AIClient(api_key, expert_model=expert_model)
         
         # SNR阈值
         self.snr_threshold_high = self.dsp_config.get("snr_threshold_high", 20.0)

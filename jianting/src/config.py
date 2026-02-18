@@ -45,6 +45,9 @@ class APIConfig:
     """AI API配置"""
     siliconflow_key: str = ""
     base_url: str = "https://api.siliconflow.cn/v1"
+    # 专家分析模型配置
+    expert_model_enabled: bool = False  # 是否启用更强的专家模型
+    expert_model: str = "Qwen/Qwen3-Omni-30B-A3B-Instruct"  # 专家模型名称
 
 
 @dataclass
@@ -91,7 +94,9 @@ class AppConfig:
         # API配置
         api = APIConfig(
             siliconflow_key=os.getenv("SILICONFLOW_API_KEY", ""),
-            base_url=os.getenv("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1")
+            base_url=os.getenv("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1"),
+            expert_model_enabled=os.getenv("EXPERT_MODEL_ENABLED", "false").lower() == "true",
+            expert_model=os.getenv("EXPERT_MODEL", "Qwen/Qwen3-Omni-30B-A3B-Instruct")
         )
         
         # DSP配置
