@@ -23,8 +23,11 @@
     # 1. 复制 .env.example 为 .env 并填写配置
     copy .env .env
     
-    # 2. 测试音频处理
-    python src/main.py -t recordings/rx/xxx.wav
+    # 2. 启动服务 (伪实时识别)
+    python src/main.py
+    
+    # 3. 扫描已有录音
+    python src/main.py --scan
 """
 import os
 import sys
@@ -37,8 +40,9 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import get_config, AppConfig, load_env_file
-from database import get_database, AudioRecord
+from database import get_database, AudioRecord, Recording
 from smart_processor import SmartAudioProcessor, AudioQuality, DSPSuggestion, AIResult
+from recognizer import RecordingRecognizer, create_recording_callback
 
 
 def print_banner(text: str, width: int = 60):
@@ -125,49 +129,44 @@ def setup_logging():
     return logging.getLogger("SmartBot")
 
 
-def process_audio_event(audio_path: str, channel_id: int, user_id: int, 
-                        nickname: str, processor: SmartAudioProcessor, 
-                        db, logger, verbose: bool = True) -> AudioRecord:
-    """处理音频事件"""
-    if verbose:
-        logger.info(f"收到音频: 用户={nickname}({user_id}), 频道={channel_id}")
-        print(f"\n🔄 正在处理音频: {os.path.basename(audio_path)}")
+def show_recordings_status(db, limit: int = 20):
+    """显示录音记录状态"""
+    print("\n" + "=" * 60)
+    print("📁 录音记录状态")
+    print("=" * 60)
     
-    # 智能处理
-    ai_result, quality, suggestion = processor.process(audio_path)
+    # 统计
+    all_recs = db.get_recordings(limit=10000)
+    total = len(all_recs)
+    recognized = sum(1 for r in all_recs if r.recognized)
+    unrecognized = total - recognized
     
-    # 打印结果到控制台
-    if verbose:
-        print_audio_result(ai_result, quality, suggestion)
+    print(f"\n总计: {total} 条录音")
+    print(f"  ✅ 已识别: {recognized}")
+    print(f"  ⏳ 未识别: {unrecognized}")
     
-    # 记录到数据库
-    record = AudioRecord(
-        timestamp=datetime.now().isoformat(),
-        channel_id=channel_id,
-        user_id=user_id,
-        nickname=nickname,
-        rms_db=quality.rms_db,
-        peak_db=quality.peak_db,
-        noise_db=quality.noise_db,
-        snr_db=quality.snr_db,
-        dsp_needed=suggestion.needed,
-        dsp_algorithm=suggestion.algorithm,
-        dsp_applied=suggestion.needed,
-        processed_snr_db=quality.snr_db + 10 if suggestion.needed else quality.snr_db,
-        signal_type=ai_result.signal_type,
-        content=ai_result.content,
-        content_normalized=ai_result.content_normalized,
-        confidence=ai_result.confidence,
-        duration=quality.duration,
-        audio_path=audio_path
-    )
-    
-    record_id = db.add_record(record)
-    
-    if verbose:
-        logger.info(f"💾 记录已保存: ID={record_id}")
-    
-    return record
+    # 显示最近录音
+    recs = db.get_recordings(limit=limit)
+    if recs:
+        print(f"\n最近 {min(limit, len(recs))} 条录音:")
+        print("-" * 60)
+        for r in recs:
+            status = "✅" if r.recognized else "⏳"
+            type_icon = {"CQ": "📡", "QSO": "📱", "NOISE": "🔇", "UNKNOWN": "❓"}.get(r.signal_type, "❓")
+            
+            # 解析时间
+            try:
+                ts = datetime.fromisoformat(r.timestamp)
+                time_str = ts.strftime("%H:%M:%S")
+            except:
+                time_str = r.timestamp[-8:] if len(r.timestamp) > 8 else r.timestamp
+            
+            print(f"  {status} [{r.recorder_type}] {time_str} | {r.user_name}")
+            print(f"      文件: {r.filename}")
+            if r.recognized:
+                print(f"      {type_icon} {r.signal_type}: {r.asr_text[:30]}...")
+                print(f"      置信度: {r.confidence*100:.1f}%")
+            print()
 
 
 def main():
@@ -176,6 +175,8 @@ def main():
     parser.add_argument("--config", "-c", help="配置文件路径 (.env)")
     parser.add_argument("--test-audio", "-t", help="测试音频文件路径")
     parser.add_argument("--verbose", "-v", action="store_true", help="详细输出")
+    parser.add_argument("--scan", "-s", action="store_true", help="扫描已有录音并识别")
+    parser.add_argument("--status", action="store_true", help="查看录音记录状态")
     args = parser.parse_args()
     
     logger = setup_logging()
@@ -213,6 +214,11 @@ def main():
     
     # 初始化数据库
     db = get_database(config.database.path)
+    
+    # 查看状态模式
+    if args.status:
+        show_recordings_status(db)
+        return
     
     # 测试音频模式
     if args.test_audio:
@@ -272,12 +278,74 @@ def main():
         
         return
     
-    # 启动机器人服务
-    print_banner("🚀 启动机器人服务")
-    print("\n提示:")
-    print("  - 使用 -t <file> 测试音频处理")
-    print("  - 完整服务需要集成 bot_server.py")
-    print("\n按 Ctrl+C 退出\n")
+    # 扫描已有录音模式
+    if args.scan:
+        print_banner("🔍 扫描已有录音")
+        
+        if not config.dsp.enabled:
+            print("\n⚠️  DSP未启用，无法识别")
+            return
+        
+        # 创建识别器
+        recognizer = RecordingRecognizer(
+            api_key=config.api.siliconflow_key,
+            dsp_config={
+                "algorithm": config.dsp.algorithm,
+                "agc_mode": config.dsp.agc_mode,
+                "snr_threshold_high": config.dsp.snr_threshold_high,
+                "snr_threshold_low": config.dsp.snr_threshold_low
+            }
+        )
+        recognizer.set_database(db)
+        
+        # 先显示当前状态
+        show_recordings_status(db)
+        
+        # 扫描处理
+        print("\n开始扫描处理...")
+        recognizer.process_existing_recordings("recordings", max_count=50)
+        
+        return
+    
+    # 启动机器人服务 (伪实时识别)
+    print_banner("🚀 启动机器人服务 (伪实时识别)")
+    
+    if not config.dsp.enabled:
+        print("\n⚠️  DSP未启用，只录制不识别")
+        print("\n启动服务...")
+        print("提示: 启动后请使用 Ctrl+C 退出\n")
+        return
+    
+    # 创建识别器
+    recognizer = RecordingRecognizer(
+        api_key=config.api.siliconflow_key,
+        dsp_config={
+            "algorithm": config.dsp.algorithm,
+            "agc_mode": config.dsp.agc_mode,
+            "snr_threshold_high": config.dsp.snr_threshold_high,
+            "snr_threshold_low": config.dsp.snr_threshold_low
+        }
+    )
+    recognizer.set_database(db)
+    
+    # 创建回调
+    recording_callback = create_recording_callback(recognizer)
+    
+    print("\n🎯 功能说明:")
+    print("   - 录音完成后自动识别")
+    print("   - 识别结果输出到控制台")
+    print("   - 记录保存到数据库")
+    print("\n📁 录音目录: recordings/日期/")
+    print("   文件格式: 序号_用户ID_时间.wav")
+    print("\n💡 常用命令:")
+    print("   --status  查看录音记录状态")
+    print("   --scan    扫描并识别已有录音")
+    print("\n启动服务... (按 Ctrl+C 退出)\n")
+    
+    # TODO: 这里需要集成 bot_server.py 来启动实际服务
+    # 暂时只显示提示信息
+    print("⚠️  完整服务需要集成 bot_server.py")
+    print("   当前仅提供识别器模块，可被 bot_server 调用")
 
 
 if __name__ == "__main__":

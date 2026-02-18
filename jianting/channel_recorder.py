@@ -53,13 +53,15 @@ class ChannelRecorder:
 
     def __init__(self, base_dir: str = "recordings", channel_id: int = 0,
                  channel_name: str = "", recorder_type: str = "",
-                 audio_processor: AudioProcessor = None):
+                 audio_processor: AudioProcessor = None,
+                 on_recording_complete=None):
+        # 统一目录结构: recordings/日期/
         self._base_dir = base_dir
         self._channel_id = channel_id
         self._channel_name = self._sanitize_name(channel_name) if channel_name else f"ch{channel_id}"
         self._lock = threading.Lock()
 
-        # 录音器类型: 优先用显式参数, 否则从路径推断
+        # 录音器类型
         if recorder_type:
             self._recorder_type = recorder_type
         else:
@@ -68,6 +70,9 @@ class ChannelRecorder:
         
         # 音频预处理器 (对讲机优化: 滤波+归一化)
         self._processor = audio_processor
+        
+        # 录音完成回调: callback(filepath, duration, user_id, user_name)
+        self._on_recording_complete = on_recording_complete
         
         # 当前活跃的录制会话: ssrc → ActiveRecording
         self._active: Dict[int, '_ActiveRecording'] = {}
@@ -136,20 +141,14 @@ class ChannelRecorder:
             today_dir = self._get_today_dir()
             seq = self._next_seq()
             now = datetime.now()
-            time_str = now.strftime("%H-%M-%S")
+            time_str = now.strftime("%H%M%S")
             display_name = name if name else f"用户{ssrc}"
-            safe_name = self._sanitize_name(display_name)
+            user_id = str(ssrc)  # 使用SSRC作为用户ID
             
-            # 文件名格式: 频道名_用户_时间.wav (同秒追加序号)
-            base_name = f"{self._channel_name}_{safe_name}_{time_str}"
+            # 文件名格式: 序号_用户ID_时间.wav (如: 001_123456_153045.wav)
+            base_name = f"{seq:03d}_{user_id}_{time_str}"
             filename = f"{base_name}.wav"
             filepath = os.path.join(today_dir, filename)
-            # 同一秒有多条录音时追加序号
-            dup = 2
-            while os.path.exists(filepath):
-                filename = f"{base_name}_{dup}.wav"
-                filepath = os.path.join(today_dir, filename)
-                dup += 1
             
             try:
                 wf = wave.open(filepath, 'wb')
@@ -160,6 +159,7 @@ class ChannelRecorder:
                 self._active[ssrc] = _ActiveRecording(
                     ssrc=ssrc,
                     name=display_name,
+                    user_id=user_id,
                     filename=filename,
                     filepath=filepath,
                     wav_file=wf,
@@ -247,6 +247,20 @@ class ChannelRecorder:
 
         # 写入 conversation_log
         self._append_log(rec, end_time, duration, frames, lost, loss_pct)
+        
+        # 触发录音完成回调 (用于伪实时识别)
+        if self._on_recording_complete:
+            try:
+                self._on_recording_complete(
+                    filepath=rec.filepath,
+                    duration=duration,
+                    user_id=rec.user_id,
+                    user_name=rec.name,
+                    channel_id=self._channel_id,
+                    recorder_type=self._recorder_type
+                )
+            except Exception as e:
+                self._logger.error(f"录音完成回调失败: {e}")
     
     def _append_log(self, rec: '_ActiveRecording', end_time: datetime,
                     duration: float, frames: int, lost: int, loss_pct: float):
@@ -301,13 +315,14 @@ class ChannelRecorder:
 class _ActiveRecording:
     """活跃的录制会话"""
     
-    __slots__ = ['ssrc', 'name', 'filename', 'filepath', 'wav_file', 
+    __slots__ = ['ssrc', 'name', 'user_id', 'filename', 'filepath', 'wav_file', 
                  'start_time', 'seq', 'frame_count']
     
-    def __init__(self, ssrc: int, name: str, filename: str, filepath: str,
+    def __init__(self, ssrc: int, name: str, user_id: str, filename: str, filepath: str,
                  wav_file, start_time: datetime, seq: int, frame_count: int):
         self.ssrc = ssrc
         self.name = name
+        self.user_id = user_id
         self.filename = filename
         self.filepath = filepath
         self.wav_file = wav_file

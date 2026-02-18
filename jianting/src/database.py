@@ -43,6 +43,31 @@ class AudioRecord:
     audio_path: str = ""
 
 
+@dataclass
+class Recording:
+    """录音记录"""
+    id: Optional[int] = None
+    filepath: str = ""
+    filename: str = ""
+    channel_id: int = 0
+    user_id: str = ""          # 用户ID (SSRC)
+    user_name: str = ""        # 用户昵称
+    recorder_type: str = ""    # RX/TX
+    duration: float = 0.0      # 录音时长(秒)
+    file_size: int = 0         # 文件大小(bytes)
+    timestamp: str = ""        # 录音时间
+    
+    # 识别状态
+    recognized: bool = False    # 是否已识别
+    asr_text: str = ""         # ASR识别文本
+    signal_type: str = ""      # 信号类型
+    confidence: float = 0.0     # 置信度
+    
+    # 音频质量
+    rms_db: float = 0.0
+    snr_db: float = 0.0
+
+
 class Database:
     """SQLite数据库管理"""
     
@@ -115,6 +140,43 @@ class Database:
         """)
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_channel_user ON audio_records(channel_id, user_id)
+        """)
+        
+        # 录音记录表
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS recordings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filepath TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                channel_id INTEGER NOT NULL,
+                user_id TEXT,
+                user_name TEXT,
+                recorder_type TEXT,
+                duration REAL,
+                file_size INTEGER,
+                timestamp TEXT NOT NULL,
+                
+                -- 识别状态
+                recognized INTEGER DEFAULT 0,
+                asr_text TEXT,
+                signal_type TEXT,
+                confidence REAL,
+                
+                -- 音频质量
+                rms_db REAL,
+                snr_db REAL
+            )
+        """)
+        
+        # 创建索引
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_rec_timestamp ON recordings(timestamp)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_rec_recognized ON recordings(recognized)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_rec_channel ON recordings(channel_id, recorder_type)
         """)
         
         conn.commit()
@@ -317,6 +379,161 @@ class Database:
             "signal_types": signal_types,
             "avg_confidence": avg_confidence
         }
+    
+    # ========== Recording 相关方法 ==========
+    
+    def add_recording(self, recording: Recording) -> int:
+        """添加录音记录"""
+        if not recording.timestamp:
+            recording.timestamp = datetime.now().isoformat()
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            INSERT INTO recordings (
+                filepath, filename, channel_id, user_id, user_name,
+                recorder_type, duration, file_size, timestamp,
+                recognized, asr_text, signal_type, confidence,
+                rms_db, snr_db
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            recording.filepath,
+            recording.filename,
+            recording.channel_id,
+            recording.user_id,
+            recording.user_name,
+            recording.recorder_type,
+            recording.duration,
+            recording.file_size,
+            recording.timestamp,
+            1 if recording.recognized else 0,
+            recording.asr_text,
+            recording.signal_type,
+            recording.confidence,
+            recording.rms_db,
+            recording.snr_db
+        ))
+        
+        record_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        return record_id
+    
+    def update_recording_recognition(self, filepath: str, 
+                                     asr_text: str = "", 
+                                     signal_type: str = "",
+                                     confidence: float = 0.0,
+                                     rms_db: float = 0.0,
+                                     snr_db: float = 0.0) -> bool:
+        """更新录音的识别结果"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            UPDATE recordings 
+            SET recognized = 1, asr_text = ?, signal_type = ?, 
+                confidence = ?, rms_db = ?, snr_db = ?
+            WHERE filepath = ?
+        """, (asr_text, signal_type, confidence, rms_db, snr_db, filepath))
+        
+        affected = cursor.rowcount
+        conn.commit()
+        conn.close()
+        
+        return affected > 0
+    
+    def get_recordings(self, 
+                       channel_id: Optional[int] = None,
+                       recorder_type: Optional[str] = None,
+                       recognized: Optional[bool] = None,
+                       limit: int = 100,
+                       offset: int = 0) -> List[Recording]:
+        """查询录音记录"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        query = "SELECT * FROM recordings WHERE 1=1"
+        params = []
+        
+        if channel_id:
+            query += " AND channel_id = ?"
+            params.append(channel_id)
+        
+        if recorder_type:
+            query += " AND recorder_type = ?"
+            params.append(recorder_type)
+        
+        if recognized is not None:
+            query += " AND recognized = ?"
+            params.append(1 if recognized else 0)
+        
+        query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        conn.close()
+        
+        recordings = []
+        for row in rows:
+            recording = Recording(
+                id=row[0],
+                filepath=row[1],
+                filename=row[2],
+                channel_id=row[3],
+                user_id=row[4] or "",
+                user_name=row[5] or "",
+                recorder_type=row[6] or "",
+                duration=row[7] or 0.0,
+                file_size=row[8] or 0,
+                timestamp=row[9],
+                recognized=bool(row[10]),
+                asr_text=row[11] or "",
+                signal_type=row[12] or "",
+                confidence=row[13] or 0.0,
+                rms_db=row[14] or 0.0,
+                snr_db=row[15] or 0.0
+            )
+            recordings.append(recording)
+        
+        return recordings
+    
+    def get_unrecognized_recordings(self, limit: int = 10) -> List[Recording]:
+        """获取未识别的录音"""
+        return self.get_recordings(recognized=False, limit=limit)
+    
+    def get_recording_by_path(self, filepath: str) -> Optional[Recording]:
+        """根据路径查询录音"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT * FROM recordings WHERE filepath = ?", (filepath,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if not row:
+            return None
+        
+        return Recording(
+            id=row[0],
+            filepath=row[1],
+            filename=row[2],
+            channel_id=row[3],
+            user_id=row[4] or "",
+            user_name=row[5] or "",
+            recorder_type=row[6] or "",
+            duration=row[7] or 0.0,
+            file_size=row[8] or 0,
+            timestamp=row[9],
+            recognized=bool(row[10]),
+            asr_text=row[11] or "",
+            signal_type=row[12] or "",
+            confidence=row[13] or 0.0,
+            rms_db=row[14] or 0.0,
+            snr_db=row[15] or 0.0
+        )
     
     def close(self):
         """关闭数据库连接"""
