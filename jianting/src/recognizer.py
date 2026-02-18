@@ -168,8 +168,11 @@ class RecordingRecognizer:
             processor = self._get_processor()
             ai_result, quality, suggestion = processor.process(filepath)
             
+            # 保存原始ASR结果用于显示
+            asr_raw = ai_result.content
+            
             # 打印识别结果
-            self._print_result(ai_result, quality, suggestion, user_name, recorder_type)
+            self._print_result(ai_result, quality, suggestion, user_name, recorder_type, asr_raw)
             
             # 更新数据库
             if self._db:
@@ -209,7 +212,7 @@ class RecordingRecognizer:
             self._processing = False
         self._process_next()
     
-    def _print_result(self, ai_result, quality, suggestion, user_name, recorder_type):
+    def _print_result(self, ai_result, quality, suggestion, user_name, recorder_type, asr_raw=""):
         """打印识别结果到控制台"""
         type_icon = {"CQ": "📡", "QSO": "📱", "CQ73": "📡", "QRZ": "📶", "NOISE": "🔇", "UNKNOWN": "❓"}
         icon = type_icon.get(ai_result.signal_type, "❓")
@@ -223,6 +226,10 @@ class RecordingRecognizer:
         
         # DSP处理
         print(f"   🔊 DSP: {'是' if suggestion.needed else '否'} ({suggestion.level})")
+        
+        # 原始ASR识别结果
+        if asr_raw:
+            print(f"   🎯 ASR: {asr_raw}")
         
         # 识别结果 - 优先使用规范化后的内容
         if ai_result.success and ai_result.content:
