@@ -16,11 +16,71 @@ import tempfile
 import shutil
 import threading
 import logging
+import time
 import numpy as np
 from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass
+from functools import wraps
 
 logger = logging.getLogger("SmartProcessor")
+
+
+def retry_on_error(max_attempts: int = 3, backoff: float = 1.0, 
+                   retry_on_timeout: bool = True, retry_on_connection: bool = True):
+    """
+    API调用重试装饰器
+    
+    Args:
+        max_attempts: 最大重试次数
+        backoff: 基础退避时间(秒)，使用指数退避
+        retry_on_timeout: 是否对超时错误重试
+        retry_on_connection: 是否对连接错误重试
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    error_str = str(e).lower()
+                    
+                    # 判断是否可重试
+                    should_retry = False
+                    
+                    # 超时错误
+                    if retry_on_timeout and ('timeout' in error_str or 'timed out' in error_str):
+                        should_retry = True
+                    
+                    # 连接错误
+                    if retry_on_connection:
+                        if any(x in error_str for x in ['connection', 'connection refused', 'connection reset', 
+                                                        'network', '无法连接', '连接失败', '远程主机']):
+                            should_retry = True
+                    
+                    # 5xx 服务器错误
+                    if '500' in error_str or '502' in error_str or '503' in error_str or '504' in error_str:
+                        should_retry = True
+                    
+                    # 429 速率限制
+                    if '429' in error_str or 'rate limit' in error_str:
+                        should_retry = True
+                    
+                    if not should_retry or attempt == max_attempts - 1:
+                        logger.error(f"[{func.__name__}] 重试次数用尽: {e}")
+                        raise
+                    
+                    # 指数退避
+                    wait_time = backoff * (2 ** attempt)
+                    logger.warning(f"[{func.__name__}] 失败，{wait_time:.1f}s后重试 ({attempt+1}/{max_attempts}): {e}")
+                    time.sleep(wait_time)
+            
+            raise last_exception
+        return wrapper
+    return decorator
 
 # 路径配置
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -333,6 +393,7 @@ class AIClient:
                 print(f"[AIClient] 加载Prompt MD失败: {e}")
         return ""
     
+    @retry_on_error(max_attempts=3, backoff=2.0)
     def call_asr(self, audio_path: str) -> Tuple[bool, str]:
         """调用ASR识别 - 使用 SiliconFlow SenseVoice"""
         try:
@@ -364,7 +425,7 @@ class AIClient:
         except Exception as e:
             # 备用方案
             return self._call_asr_via_chat(audio_path)
-    
+    @retry_on_error(max_attempts=3, backoff=2.0)
     def _call_asr_via_chat(self, audio_path: str) -> Tuple[bool, str]:
         """通过 chat 接口调用 ASR"""
         try:
@@ -407,7 +468,7 @@ class AIClient:
                 return False, f"API错误: {response.status_code} - {response.text[:100]}"
         except Exception as e:
             return False, f"ASR错误: {str(e)}"
-    
+    @retry_on_error(max_attempts=3, backoff=2.0)
     def call_expert_analysis(self, audio_path: str, asr_text: str) -> Tuple[bool, str]:
         """调用专家分析 - 优先使用prompts.md"""
         try:

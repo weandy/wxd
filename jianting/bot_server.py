@@ -450,10 +450,51 @@ class BotServer:
                     else:
                         logger.warning(f"[状态监控] 获取状态失败: {status_result.error}")
 
-                # --- 3. Listener Status Check ---
+                # --- 3. Listener Status Check & Reconnect ---
                 if not self.listener._is_listening:
-                    logger.warning("检测到监听器已停止，尝试重新初始化")
-                    return
+                    logger.warning("检测到监听器已停止，尝试重新连接...")
+                    
+                    # 重连参数
+                    max_reconnects = 10
+                    reconnect_count = 0
+                    reconnected = False
+                    
+                    while reconnect_count < max_reconnects and self.is_running:
+                        try:
+                            # 停止现有监听器
+                            self.listener.stop_listening()
+                            
+                            # 等待一小段时间
+                            time.sleep(2)
+                            
+                            # 重新连接
+                            conn_result = self.listener.connect(self.target_channel_id)
+                            if conn_result.success:
+                                if self.listener.start_listening():
+                                    logger.info(f"✅ 重新连接成功 (尝试 {reconnect_count + 1})")
+                                    reconnected = True
+                                    break
+                            
+                            reconnect_count += 1
+                            wait_time = min(30, 2 ** reconnect_count)  # 指数退避，最多30秒
+                            logger.warning(f"重连失败，{wait_time}s后重试 ({reconnect_count}/{max_reconnects})")
+                            time.sleep(wait_time)
+                            
+                        except Exception as e:
+                            reconnect_count += 1
+                            logger.error(f"重连异常: {e}")
+                            time.sleep(5)
+                    
+                    if not reconnected:
+                        logger.error("重连次数超限，退出")
+                        break
+                    
+                    # 重新连接成功后，重新设置录制器
+                    if reconnected:
+                        try:
+                            self._setup_recorder()
+                        except Exception as e:
+                            logger.error(f"重新设置录制器失败: {e}")
 
                 time.sleep(0.1) # Short sleep for responsiveness
                 
