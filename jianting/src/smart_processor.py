@@ -359,17 +359,37 @@ class AIClient:
                 "Content-Type": "application/json"
             }
             
-            prompt = f"""你是一个业余无线电通信专家。请分析以下音频的识别结果：
+            prompt = f"""你是一个专业的业余无线电通信专家，精通HAM通联术语和字母解释法。
 
 识别文本: {asr_text}
 
-请分析并返回JSON格式结果:
+请根据以下规则分析和规范化内容：
+
+1. 字母解释法识别：识别并转换字母解释法
+   - Alfa(A), Bravo(B), Charlie(C), Delta(D), Echo(E), Foxtrot(F), Golf(G), Hotel(H), India(I), Juliett(J), Kilo(K), Lima(L), Mike(M), November(N), Oscar(O), Papa(P), Quebec(Q), Romeo(R), Sierra(S), Tango(T), Uniform(U), Victor(V), Whiskey(W), X-ray(X), Yankee(Y), Zulu(Z)
+   - 也识别中文简写：如"RAL"="radio" ,"DETA"="data", "FLORIDAIDA PAPA"="FP"
+
+2. 术语纠正：
+   - "柴友" → "台友" (业余无线电爱好者之间的称呼)
+   - "超收" → "抄收" (收到对方信号)
+   - "柴油" → 可能是"台友"或设备描述
+
+3. 呼号识别：从文本中提取ham呼号或用户ID
+
+4. 通联类型判断：
+   - CQ: 广泛呼叫
+   - QSO: 双方通联
+   - QRZ: 谁在呼叫
+   - 73: 祝福
+   - 88: 爱吻
+
+请返回JSON格式结果:
 {{
-    "signal_type": "CQ/QSO/NOISE/UNKNOWN",  // 信号类型
-    "content_normalized": "规范化内容",       // 规范化后的内容
-    "user_id": "呼号/工号",                   // 如果能识别
-    "signal_quality": "1-9",                 // 信号质量
-    "confidence": 0.0-1.0                    // 分析置信度
+    "signal_type": "CQ/QSO/CQ73/QRZ/NOISE/UNKNOWN",
+    "content_normalized": "规范化后的完整通联内容，保留关键呼号",
+    "user_id": "提取的呼号或ID",
+    "signal_quality": "1-9",
+    "confidence": 0.0-1.0
 }}
 
 只返回JSON，不要其他内容。"""

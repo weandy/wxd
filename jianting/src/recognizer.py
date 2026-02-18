@@ -186,7 +186,7 @@ class RecordingRecognizer:
     
     def _print_result(self, ai_result, quality, suggestion, user_name, recorder_type):
         """打印识别结果到控制台"""
-        type_icon = {"CQ": "📡", "QSO": "📱", "NOISE": "🔇", "UNKNOWN": "❓"}
+        type_icon = {"CQ": "📡", "QSO": "📱", "CQ73": "📡", "QRZ": "📶", "NOISE": "🔇", "UNKNOWN": "❓"}
         icon = type_icon.get(ai_result.signal_type, "❓")
         
         print("\n" + "=" * 60)
@@ -199,9 +199,15 @@ class RecordingRecognizer:
         # DSP处理
         print(f"   🔊 DSP: {'是' if suggestion.needed else '否'} ({suggestion.level})")
         
-        # 识别结果
+        # 识别结果 - 优先使用规范化后的内容
         if ai_result.success and ai_result.content:
-            print(f"   {icon} {ai_result.signal_type}: {ai_result.content}")
+            # 显示规范化内容(如果与原始不同)
+            display_content = ai_result.content_normalized if ai_result.content_normalized else ai_result.content
+            print(f"   {icon} {ai_result.signal_type}: {display_content}")
+            
+            # 如果有呼号识别，显示出来
+            if ai_result.user_id:
+                print(f"   📻 呼号: {ai_result.user_id}")
             
             conf = ai_result.confidence
             conf_color = "🟢" if conf > 0.8 else "🟡" if conf > 0.5 else "🔴"
