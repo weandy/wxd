@@ -164,15 +164,20 @@ class RecordingRecognizer:
                 rec_id = self._db.add_recording(rec)
                 logger.info(f"录音记录已添加: ID={rec_id}")
             
-            # 执行识别
+            # 执行识别并记录耗时
+            import time
+            start_time_recognize = time.time()
+            
             processor = self._get_processor()
             ai_result, quality, suggestion = processor.process(filepath)
+            
+            recognize_duration = time.time() - start_time_recognize
             
             # 保存原始ASR结果用于显示
             asr_raw = ai_result.content
             
             # 打印识别结果
-            self._print_result(ai_result, quality, suggestion, user_name, recorder_type, asr_raw)
+            self._print_result(ai_result, quality, suggestion, user_name, recorder_type, asr_raw, recognize_duration)
             
             # 更新数据库
             if self._db:
@@ -183,10 +188,11 @@ class RecordingRecognizer:
                     signal_type=ai_result.signal_type,
                     confidence=ai_result.confidence,
                     rms_db=quality.rms_db,
-                    snr_db=quality.snr_db
+                    snr_db=quality.snr_db,
+                    recognize_duration=recognize_duration
                 )
             
-            logger.info(f"✅ 识别完成: {os.path.basename(filepath)}")
+            logger.info(f"✅ 识别完成: {os.path.basename(filepath)}, 耗时: {recognize_duration:.2f}s")
             
         except Exception as e:
             logger.error(f"识别失败: {e}")
@@ -212,7 +218,7 @@ class RecordingRecognizer:
             self._processing = False
         self._process_next()
     
-    def _print_result(self, ai_result, quality, suggestion, user_name, recorder_type, asr_raw=""):
+    def _print_result(self, ai_result, quality, suggestion, user_name, recorder_type, asr_raw="", recognize_duration=0.0):
         """打印识别结果到控制台"""
         type_icon = {"CQ": "📡", "QSO": "📱", "CQ73": "📡", "QRZ": "📶", "NOISE": "🔇", "UNKNOWN": "❓"}
         icon = type_icon.get(ai_result.signal_type, "❓")
@@ -223,6 +229,10 @@ class RecordingRecognizer:
         
         # 音频质量
         print(f"   📊 SNR: {quality.snr_db:.1f} dB | 时长: {quality.duration:.1f}s")
+        
+        # 识别耗时
+        if recognize_duration > 0:
+            print(f"   ⏱️ 识别耗时: {recognize_duration:.2f}s")
         
         # DSP处理
         print(f"   🔊 DSP: {'是' if suggestion.needed else '否'} ({suggestion.level})")

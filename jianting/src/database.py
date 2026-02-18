@@ -68,6 +68,9 @@ class Recording:
     # 音频质量
     rms_db: float = 0.0
     snr_db: float = 0.0
+    
+    # 识别耗时
+    recognize_duration: float = 0.0  # 识别耗时(秒)
 
 
 class Database:
@@ -168,7 +171,10 @@ class Database:
                 
                 -- 音频质量
                 rms_db REAL,
-                snr_db REAL
+                snr_db REAL,
+                
+                -- 识别耗时
+                recognize_duration REAL
             )
         """)
         
@@ -433,7 +439,8 @@ class Database:
                                      signal_type: str = "",
                                      confidence: float = 0.0,
                                      rms_db: float = 0.0,
-                                     snr_db: float = 0.0) -> bool:
+                                     snr_db: float = 0.0,
+                                     recognize_duration: float = 0.0) -> bool:
         """更新录音的识别结果"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -441,9 +448,9 @@ class Database:
         cursor.execute("""
             UPDATE recordings 
             SET recognized = 1, asr_text = ?, content_normalized = ?, signal_type = ?, 
-                confidence = ?, rms_db = ?, snr_db = ?
+                confidence = ?, rms_db = ?, snr_db = ?, recognize_duration = ?
             WHERE filepath = ?
-        """, (asr_text, content_normalized, signal_type, confidence, rms_db, snr_db, filepath))
+        """, (asr_text, content_normalized, signal_type, confidence, rms_db, snr_db, recognize_duration, filepath))
         
         affected = cursor.rowcount
         conn.commit()
@@ -503,7 +510,8 @@ class Database:
                 signal_type=row[14] or "",
                 confidence=row[15] or 0.0,
                 rms_db=row[16] or 0.0,
-                snr_db=row[17] or 0.0
+                snr_db=row[17] or 0.0,
+                recognize_duration=row[18] or 0.0 if len(row) > 18 else 0.0
             )
             recordings.append(recording)
         
@@ -543,7 +551,8 @@ class Database:
             signal_type=row[14] or "",
             confidence=row[15] or 0.0,
             rms_db=row[16] or 0.0,
-            snr_db=row[17] or 0.0
+            snr_db=row[17] or 0.0,
+            recognize_duration=row[18] or 0.0 if len(row) > 18 else 0.0
         )
     
     def close(self):
