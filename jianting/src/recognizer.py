@@ -16,7 +16,7 @@ if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
 # 使用日志配置模块
-from logging_setup import setup_logger
+from .logging_setup import setup_logger
 logger = setup_logger("Recognizer", "recognize")
 
 
