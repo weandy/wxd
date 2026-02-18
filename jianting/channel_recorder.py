@@ -251,9 +251,12 @@ class ChannelRecorder:
         # 触发录音完成回调 (用于伪实时识别)
         if self._on_recording_complete:
             try:
+                # 格式化开始时间，精确到0.1秒
+                start_time_str = rec.start_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-5]
                 self._on_recording_complete(
                     filepath=rec.filepath,
                     duration=duration,
+                    start_time=start_time_str,
                     user_id=rec.user_id,
                     user_name=rec.name,
                     channel_id=self._channel_id,

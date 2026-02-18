@@ -53,9 +53,10 @@ class Recording:
     user_id: str = ""          # 用户ID (SSRC)
     user_name: str = ""        # 用户昵称
     recorder_type: str = ""    # RX/TX
-    duration: float = 0.0      # 录音时长(秒)
+    duration: float = 0.0      # 录音时长(秒)，精确到0.1
+    start_time: str = ""        # 开始录音时间，精确到0.1秒 (如: 2026-02-18 13:41:37.9)
     file_size: int = 0         # 文件大小(bytes)
-    timestamp: str = ""        # 录音时间
+    timestamp: str = ""        # 录音时间戳
     
     # 识别状态
     recognized: bool = False    # 是否已识别
@@ -154,6 +155,7 @@ class Database:
                 user_name TEXT,
                 recorder_type TEXT,
                 duration REAL,
+                start_time TEXT,
                 file_size INTEGER,
                 timestamp TEXT NOT NULL,
                 
@@ -395,10 +397,10 @@ class Database:
         cursor.execute("""
             INSERT INTO recordings (
                 filepath, filename, channel_id, user_id, user_name,
-                recorder_type, duration, file_size, timestamp,
+                recorder_type, duration, start_time, file_size, timestamp,
                 recognized, asr_text, content_normalized, signal_type, confidence,
                 rms_db, snr_db
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             recording.filepath,
             recording.filename,
@@ -407,6 +409,7 @@ class Database:
             recording.user_name,
             recording.recorder_type,
             recording.duration,
+            recording.start_time,
             recording.file_size,
             recording.timestamp,
             1 if recording.recognized else 0,
@@ -491,15 +494,16 @@ class Database:
                 user_name=row[5] or "",
                 recorder_type=row[6] or "",
                 duration=row[7] or 0.0,
-                file_size=row[8] or 0,
-                timestamp=row[9],
-                recognized=bool(row[10]),
-                asr_text=row[11] or "",
-                content_normalized=row[12] or "",
-                signal_type=row[13] or "",
-                confidence=row[14] or 0.0,
-                rms_db=row[15] or 0.0,
-                snr_db=row[16] or 0.0
+                start_time=row[8] or "",
+                file_size=row[9] or 0,
+                timestamp=row[10],
+                recognized=bool(row[11]),
+                asr_text=row[12] or "",
+                content_normalized=row[13] or "",
+                signal_type=row[14] or "",
+                confidence=row[15] or 0.0,
+                rms_db=row[16] or 0.0,
+                snr_db=row[17] or 0.0
             )
             recordings.append(recording)
         
@@ -530,15 +534,16 @@ class Database:
             user_name=row[5] or "",
             recorder_type=row[6] or "",
             duration=row[7] or 0.0,
-            file_size=row[8] or 0,
-            timestamp=row[9],
-            recognized=bool(row[10]),
-            asr_text=row[11] or "",
-            content_normalized=row[12] or "",
-            signal_type=row[13] or "",
-            confidence=row[14] or 0.0,
-            rms_db=row[15] or 0.0,
-            snr_db=row[16] or 0.0
+            start_time=row[8] or "",
+            file_size=row[9] or 0,
+            timestamp=row[10],
+            recognized=bool(row[11]),
+            asr_text=row[12] or "",
+            content_normalized=row[13] or "",
+            signal_type=row[14] or "",
+            confidence=row[15] or 0.0,
+            rms_db=row[16] or 0.0,
+            snr_db=row[17] or 0.0
         )
     
     def close(self):

@@ -448,11 +448,13 @@ class BotServer:
 
 def create_recording_callback(recognizer, channel_id):
     """创建录音完成回调函数"""
-    def callback(filepath: str, duration: float, user_id: str, user_name: str,
+    def callback(filepath: str, duration: float, start_time: str, 
+                 user_id: str, user_name: str,
                  channel_id: int = 0, recorder_type: str = "RX"):
         recognizer.on_recording_complete(
             filepath=filepath,
             duration=duration,
+            start_time=start_time,
             user_id=user_id,
             user_name=user_name,
             channel_id=channel_id,

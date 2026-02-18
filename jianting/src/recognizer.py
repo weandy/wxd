@@ -44,6 +44,7 @@ class RecordingRecognizer:
         return self._processor
     
     def on_recording_complete(self, filepath: str, duration: float, 
+                              start_time: str,
                               user_id: str, user_name: str,
                               channel_id: int, recorder_type: str):
         """录音完成回调 - 由 ChannelRecorder 调用"""
@@ -65,6 +66,7 @@ class RecordingRecognizer:
             self._pending_queue.append({
                 'filepath': filepath,
                 'duration': duration,
+                'start_time': start_time,
                 'user_id': user_id,
                 'user_name': user_name,
                 'channel_id': channel_id,
@@ -108,6 +110,7 @@ class RecordingRecognizer:
         """执行识别"""
         filepath = task['filepath']
         duration = task['duration']
+        start_time = task.get('start_time', '')  # 开始录音时间
         user_id = task['user_id']
         user_name = task['user_name']
         channel_id = task['channel_id']
@@ -120,7 +123,7 @@ class RecordingRecognizer:
             duration = self._calculate_duration(filepath)
             logger.info(f"计算时长: {filepath} -> {duration:.2f}s")
         
-        logger.info(f"开始识别: {os.path.basename(filepath)}, 时长={duration:.2f}s")
+        logger.info(f"开始识别: {os.path.basename(filepath)}, 时长={duration:.2f}s, 开始时间={start_time}")
         
         # 时长过滤：低于1秒的录音标记为无效，不上传云端识别
         if duration < 1.0:
@@ -152,7 +155,8 @@ class RecordingRecognizer:
                     user_id=user_id,
                     user_name=user_name,
                     recorder_type=recorder_type,
-                    duration=duration,
+                    duration=round(duration, 1),  # 精确到0.1秒
+                    start_time=start_time,
                     file_size=file_size,
                     timestamp=timestamp,
                     recognized=False
