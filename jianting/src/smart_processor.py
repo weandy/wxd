@@ -378,11 +378,6 @@ class AIClient:
         try:
             import requests
             
-            # 读取音频文件为base64
-            import base64
-            with open(audio_path, 'rb') as f:
-                audio_b64 = base64.b64encode(f.read()).decode()
-            
             url = f"{self.base_url}/chat/completions"
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
@@ -392,24 +387,35 @@ class AIClient:
             # 从加载的配置中获取prompt
             expert_config = self.prompts.get("expert_analysis", {})
             system_prompt = expert_config.get("system_prompt", "你是一个业余无线电通信专家。")
-            user_template = expert_config.get("user_prompt_template", "识别文本: {asr_text}")
+            
+            # 获取纠正规则
+            correction_rules = expert_config.get("correction_rules", {})
+            common_mistakes = correction_rules.get("common_mistakes", [])
+            number_mappings = correction_rules.get("number_mappings", {})
+            
+            # 构建纠正规则文本
+            corrections_text = "\n".join([f'"{m["from"]}" → "{m["to"]}"' for m in common_mistakes[:10]])
+            numbers_text = ", ".join([f'"{k}"={v}' for k,v in number_mappings.items()])
+            
+            user_template = expert_config.get("user_prompt_template", "ASR: {asr_text}")
             output_format = expert_config.get("output_format", {})
             
-            # 构建完整的prompt
+            # 构建完整的prompt - 增加纠正规则
             prompt = f"""{system_prompt}
 
+## 常见错误纠正规则 (重要!):
+{corrections_text}
+
+## 数字映射:
+{numbers_text}
+
+## 处理任务:
 {user_template.format(asr_text)}
 
-输出格式:
+## 输出格式:
 {json.dumps(output_format, ensure_ascii=False)}
 
 只返回JSON，不要其他内容。"""
-            
-            payload = {
-                "model": "Qwen/Qwen2.5-7B-Instruct",
-                "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 512
-            }
             
             response = requests.post(url, json=payload, headers=headers, timeout=60)
             
