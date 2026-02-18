@@ -98,21 +98,22 @@ class BotServer:
     pass
 
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("bot_server.log", encoding='utf-8'),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
+# 使用新的日志配置
+from src.logger_config import setup_logger, LOGS_DIR
+import sys
 
-# Suppress noisy libraries
+logger = setup_logger("BSHTBox", "main")
+
+# 静默第三方库日志
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("hpack").setLevel(logging.WARNING)
-logger = logging.getLogger("BSHTBox")
+
+# 打印启动信息
+print(f"\n📁 日志目录: {LOGS_DIR}")
+print(f"📝 日志文件: logs/bot_server.log (按天轮转, 保留7天)")
+print(f"📝 识别日志: logs/recognize.log")
+print(f"📝 错误日志: logs/error.log\n")
 
 class BotServer:
     def __init__(self, username, password, target_channel_id, channel_passcode=0):

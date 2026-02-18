@@ -22,7 +22,9 @@ from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass
 from functools import wraps
 
-logger = logging.getLogger("SmartProcessor")
+# 使用日志配置模块
+from logger_config import setup_logger
+logger = setup_logger("SmartProcessor", "recognize")
 
 
 def retry_on_error(max_attempts: int = 3, backoff: float = 1.0, 
