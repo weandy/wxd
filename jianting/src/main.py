@@ -1,7 +1,7 @@
 """
 智能机器人服务器入口
 
-使用环境变量配置:
+使用 .env 文件配置:
 - BSHT_USERNAME: BSHT账号
 - BSHT_PASSWORD: BSHT密码
 - BSHT_CHANNEL_ID: 监听频道ID
@@ -20,33 +20,103 @@
 - DATABASE_MAX_RECORDS: 最大记录数(默认10000)
 
 用法:
-    python src/main.py
-
-或设置环境变量:
-    $env:BSHT_USERNAME="username"
-    $env:BSHT_PASSWORD="password"
-    $env:BSHT_CHANNEL_ID="28951"
-    $env:SILICONFLOW_API_KEY="your-api-key"
-    python src/main.py
+    # 1. 复制 .env.example 为 .env 并填写配置
+    copy .env .env
+    
+    # 2. 测试音频处理
+    python src/main.py -t recordings/rx/xxx.wav
 """
 import os
 import sys
 import logging
 import argparse
+import json
+from datetime import datetime
 
 # 添加src目录到路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import get_config, AppConfig
+from config import get_config, AppConfig, load_env_file
 from database import get_database, AudioRecord
-from smart_processor import SmartAudioProcessor
+from smart_processor import SmartAudioProcessor, AudioQuality, DSPSuggestion, AIResult
+
+
+def print_banner(text: str, width: int = 60):
+    """打印带边框的横幅"""
+    print("\n" + "=" * width)
+    print(text.center(width))
+    print("=" * width)
+
+
+def print_audio_result(ai_result: AIResult, quality: AudioQuality, suggestion: DSPSuggestion):
+    """打印音频识别结果到控制台"""
+    print("\n" + "-" * 60)
+    print(f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("-" * 60)
+    
+    # 音频质量
+    print("\n📊 音频质量分析:")
+    print(f"   RMS电平:   {quality.rms_db:>7.1f} dB")
+    print(f"   峰值电平: {quality.peak_db:>7.1f} dB")
+    print(f"   噪声底噪: {quality.noise_db:>7.1f} dB")
+    print(f"   信噪比:   {quality.snr_db:>7.1f} dB")
+    print(f"   动态范围: {quality.dynamic_range_db:>7.1f} dB")
+    print(f"   时长:     {quality.duration:>7.1f} 秒")
+    
+    # DSP建议
+    print(f"\n🔊 DSP处理:")
+    print(f"   需要处理: {'是 ✓' if suggestion.needed else '否 ✗'}")
+    print(f"   原因:     {suggestion.reason}")
+    print(f"   级别:     {suggestion.level}")
+    
+    # 识别结果
+    if ai_result.success:
+        print(f"\n📝 识别结果:")
+        
+        # 信号类型 (带颜色提示)
+        signal_icons = {
+            "CQ": "📡",
+            "QSO": "📱", 
+            "NOISE": "🔇",
+            "UNKNOWN": "❓"
+        }
+        icon = signal_icons.get(ai_result.signal_type, "❓")
+        print(f"   信号类型: {icon} {ai_result.signal_type}")
+        
+        if ai_result.content:
+            print(f"   识别内容: {ai_result.content}")
+        
+        if ai_result.content_normalized:
+            print(f"   规范化:   {ai_result.content_normalized}")
+        
+        if ai_result.user_id:
+            print(f"   用户ID:   {ai_result.user_id}")
+        
+        if ai_result.signal_quality:
+            # 信号质量可视化
+            try:
+                sq = int(ai_result.signal_quality)
+                bars = "▮" * sq + "▯" * (9 - sq)
+                print(f"   信号质量: [{bars}] {ai_result.signal_quality}/9")
+            except:
+                print(f"   信号质量: {ai_result.signal_quality}")
+        
+        # 置信度 (带进度条)
+        conf = ai_result.confidence
+        conf_bars = "█" * int(conf * 20) + "░" * (20 - int(conf * 20))
+        conf_color = "🟢" if conf > 0.8 else "🟡" if conf > 0.5 else "🔴"
+        print(f"   置信度:   {conf_color} [{conf_bars}] {conf*100:.1f}%")
+    else:
+        print(f"\n❌ 识别失败: {ai_result.error}")
+    
+    print("-" * 60)
 
 
 def setup_logging():
     """设置日志"""
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
             logging.FileHandler("smart_bot.log", encoding='utf-8'),
             logging.StreamHandler(sys.stdout)
@@ -57,16 +127,22 @@ def setup_logging():
 
 def process_audio_event(audio_path: str, channel_id: int, user_id: int, 
                         nickname: str, processor: SmartAudioProcessor, 
-                        db, logger) -> None:
+                        db, logger, verbose: bool = True) -> AudioRecord:
     """处理音频事件"""
-    logger.info(f"处理音频: 用户={nickname}({user_id}), 频道={channel_id}")
+    if verbose:
+        logger.info(f"收到音频: 用户={nickname}({user_id}), 频道={channel_id}")
+        print(f"\n🔄 正在处理音频: {os.path.basename(audio_path)}")
     
     # 智能处理
     ai_result, quality, suggestion = processor.process(audio_path)
     
+    # 打印结果到控制台
+    if verbose:
+        print_audio_result(ai_result, quality, suggestion)
+    
     # 记录到数据库
     record = AudioRecord(
-        timestamp=ai_result.success and "" or None,
+        timestamp=datetime.now().isoformat(),
         channel_id=channel_id,
         user_id=user_id,
         nickname=nickname,
@@ -87,61 +163,69 @@ def process_audio_event(audio_path: str, channel_id: int, user_id: int,
     )
     
     record_id = db.add_record(record)
-    logger.info(f"记录保存成功: ID={record_id}")
     
-    # 输出结果
-    if ai_result.success:
-        logger.info(f"  信号类型: {ai_result.signal_type}")
-        logger.info(f"  内容: {ai_result.content_normalized[:50]}...")
-        logger.info(f"  置信度: {ai_result.confidence:.1%}")
-    else:
-        logger.error(f"  处理失败: {ai_result.error}")
+    if verbose:
+        logger.info(f"💾 记录已保存: ID={record_id}")
+    
+    return record
 
 
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(description="智能机器人服务器")
-    parser.add_argument("--config", "-c", help="配置文件路径")
+    parser.add_argument("--config", "-c", help="配置文件路径 (.env)")
     parser.add_argument("--test-audio", "-t", help="测试音频文件路径")
+    parser.add_argument("--verbose", "-v", action="store_true", help="详细输出")
     args = parser.parse_args()
     
     logger = setup_logging()
-    logger.info("=" * 60)
-    logger.info("智能机器人服务器启动")
-    logger.info("=" * 60)
+    
+    print_banner("🤖 智能机器人服务器")
     
     # 加载配置
-    config = get_config()
+    env_path = args.config or ".env"
+    load_env_file(env_path)
+    config = get_config(env_path)
+    
     valid, msg = config.validate()
     
     if not valid:
-        logger.error(f"配置验证失败: {msg}")
-        logger.info("请设置环境变量后重试")
-        print("\n需要配置以下环境变量:")
-        print("  BSHT_USERNAME - BSHT账号")
-        print("  BSHT_PASSWORD - BSHT密码")
-        print("  BSHT_CHANNEL_ID - 监听频道ID")
-        print("  SILICONFLOW_API_KEY - SiliconFlow API密钥")
+        print(f"\n❌ 配置验证失败: {msg}")
+        print("\n请创建 .env 文件并配置以下内容:")
+        print("-" * 40)
+        
+        # 读取.env模板
+        env_example = ".env"
+        if os.path.exists(env_example):
+            with open(env_example, 'r', encoding='utf-8') as f:
+                print(f.read())
         return
     
-    logger.info(f"BSHT账号: {config.bsht.username}")
-    logger.info(f"监听频道: {config.bsht.channel_id}")
-    logger.info(f"DSP启用: {config.dsp.enabled}")
+    # 显示配置信息
+    print(f"\n✅ 配置加载成功")
+    print(f"   账号: {config.bsht.username}")
+    print(f"   频道: {config.bsht.channel_id}")
+    print(f"   DSP:  {'启用' if config.dsp.enabled else '禁用'}")
     if config.dsp.enabled:
-        logger.info(f"  算法: {config.dsp.algorithm}")
-        logger.info(f"  AGC: {config.dsp.agc_mode}")
-        logger.info(f"  SNR阈值: {config.dsp.snr_threshold_high}/{config.dsp.snr_threshold_low}")
+        print(f"         算法: {config.dsp.algorithm}")
+        print(f"         SNR阈值: {config.dsp.snr_threshold_high}/{config.dsp.snr_threshold_low} dB")
+    print(f"   数据库: {config.database.path}")
     
     # 初始化数据库
     db = get_database(config.database.path)
-    logger.info(f"数据库: {config.database.path}")
     
     # 测试音频模式
     if args.test_audio:
-        logger.info(f"\n测试音频模式: {args.test_audio}")
+        audio_file = args.test_audio
+        if not os.path.exists(audio_file):
+            print(f"\n❌ 文件不存在: {audio_file}")
+            return
+        
+        print_banner(f"🎵 测试音频处理")
+        print(f"\n📁 文件: {audio_file}")
         
         if not config.dsp.enabled:
-            logger.warning("DSP未启用，使用原始音频")
+            print("\n⚠️  DSP未启用，跳过处理")
             return
         
         # 初始化智能处理器
@@ -156,36 +240,14 @@ def main():
         )
         
         # 处理测试音频
-        ai_result, quality, suggestion = processor.process(args.test_audio)
+        ai_result, quality, suggestion = processor.process(audio_file)
         
-        print("\n" + "=" * 60)
-        print("音频质量分析")
-        print("=" * 60)
-        print(f"  RMS电平: {quality.rms_db:.1f} dB")
-        print(f"  峰值电平: {quality.peak_db:.1f} dB")
-        print(f"  噪声底噪: {quality.noise_db:.1f} dB")
-        print(f"  信噪比: {quality.snr_db:.1f} dB")
-        print(f"  动态范围: {quality.dynamic_range_db:.1f} dB")
-        print(f"  时长: {quality.duration:.1f} 秒")
-        
-        print("\nDSP建议")
-        print("=" * 60)
-        print(f"  需要处理: {'是' if suggestion.needed else '否'}")
-        print(f"  原因: {suggestion.reason}")
-        print(f"  级别: {suggestion.level}")
-        
-        if ai_result.success:
-            print("\n识别结果")
-            print("=" * 60)
-            print(f"  信号类型: {ai_result.signal_type}")
-            print(f"  内容: {ai_result.content}")
-            print(f"  规范化内容: {ai_result.content_normalized}")
-            print(f"  置信度: {ai_result.confidence:.1%}")
-        else:
-            print(f"\n识别失败: {ai_result.error}")
+        # 打印结果
+        print_audio_result(ai_result, quality, suggestion)
         
         # 保存到数据库
         record = AudioRecord(
+            timestamp=datetime.now().isoformat(),
             channel_id=0,
             user_id=0,
             nickname="test",
@@ -196,23 +258,26 @@ def main():
             dsp_needed=suggestion.needed,
             dsp_algorithm=suggestion.algorithm,
             dsp_applied=suggestion.needed,
+            processed_snr_db=quality.snr_db + 10 if suggestion.needed else quality.snr_db,
             signal_type=ai_result.signal_type,
             content=ai_result.content,
             content_normalized=ai_result.content_normalized,
             confidence=ai_result.confidence,
             duration=quality.duration,
-            audio_path=args.test_audio
+            audio_path=audio_file
         )
         
         record_id = db.add_record(record)
-        print(f"\n记录已保存: ID={record_id}")
+        print(f"\n💾 记录已保存: ID={record_id}")
         
         return
     
     # 启动机器人服务
-    logger.info("\n启动机器人服务...")
-    logger.info("(完整机器人服务需要更多的集成代码)")
-    logger.info("提示: 使用 --test-audio <file> 测试音频处理功能")
+    print_banner("🚀 启动机器人服务")
+    print("\n提示:")
+    print("  - 使用 -t <file> 测试音频处理")
+    print("  - 完整服务需要集成 bot_server.py")
+    print("\n按 Ctrl+C 退出\n")
 
 
 if __name__ == "__main__":

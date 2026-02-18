@@ -1,10 +1,34 @@
 """
 配置管理模块 - 使用环境变量管理配置
+支持 .env 文件和系统环境变量
 高内聚低耦合设计
 """
 import os
 from typing import Optional
 from dataclasses import dataclass
+
+
+def load_env_file(env_path: str = ".env") -> None:
+    """从 .env 文件加载环境变量"""
+    if not os.path.exists(env_path):
+        return
+    
+    with open(env_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            # 跳过注释和空行
+            if not line or line.startswith('#'):
+                continue
+            
+            # 解析 KEY=VALUE 格式
+            if '=' in line:
+                key, value = line.split('=', 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                
+                # 只有当环境变量不存在时才设置
+                if key not in os.environ:
+                    os.environ[key] = value
 
 
 @dataclass
@@ -51,8 +75,11 @@ class AppConfig:
     database: DatabaseConfig
     
     @classmethod
-    def from_env(cls) -> 'AppConfig':
-        """从环境变量加载配置"""
+    def from_env(cls, env_path: str = ".env") -> 'AppConfig':
+        """从环境变量加载配置 (.env文件 + 系统环境变量)"""
+        # 先加载 .env 文件
+        load_env_file(env_path)
+        
         # BSHT配置
         bsht = BSHTConfig(
             username=os.getenv("BSHT_USERNAME", ""),
@@ -98,20 +125,24 @@ class AppConfig:
 
 # 全局配置实例
 _config: Optional[AppConfig] = None
+_env_path: str = ".env"
 
 
-def get_config() -> AppConfig:
+def get_config(env_path: str = ".env") -> AppConfig:
     """获取全局配置实例"""
-    global _config
+    global _config, _env_path
+    _env_path = env_path
     if _config is None:
-        _config = AppConfig.from_env()
+        _config = AppConfig.from_env(env_path)
     return _config
 
 
-def reload_config() -> AppConfig:
+def reload_config(env_path: str = None) -> AppConfig:
     """重新加载配置"""
-    global _config
-    _config = AppConfig.from_env()
+    global _config, _env_path
+    if env_path:
+        _env_path = env_path
+    _config = AppConfig.from_env(_env_path)
     return _config
 
 
