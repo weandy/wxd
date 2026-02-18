@@ -180,7 +180,7 @@ class RecordingRecognizer:
         # ===== 数据库缓存检查 =====
         if self._db:
             existing = self._db.get_recording_by_path(filepath)
-            if existing and existing.recognized and existing.asr_text and not existing.invalid_reason:
+            if existing and existing.recognized:
                 logger.info(f"[缓存] 使用已识别结果: {os.path.basename(filepath)}")
                 # 从数据库恢复识别结果并打印
                 from dataclasses import dataclass
