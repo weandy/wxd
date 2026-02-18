@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from functools import wraps
 
 # 使用日志配置模块
-from logger_config import setup_logger
+from logging_setup import setup_logger
 logger = setup_logger("SmartProcessor", "recognize")
 
 

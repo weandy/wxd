@@ -99,7 +99,7 @@ class BotServer:
 
 
 # 使用新的日志配置
-from src.logger_config import setup_logger, LOGS_DIR
+from src.logging_setup import setup_logger, LOGS_DIR
 import sys
 
 logger = setup_logger("BSHTBox", "main")
