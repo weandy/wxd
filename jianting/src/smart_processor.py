@@ -266,26 +266,82 @@ class AIClient:
         self.base_url = base_url
     
     def call_asr(self, audio_path: str) -> Tuple[bool, str]:
-        """调用ASR识别"""
+        """调用ASR识别 - 使用 SiliconFlow SenseVoice"""
         try:
             import requests
             
-            url = f"{self.base_url}/audio/asr"
+            # SiliconFlow ASR API 端点
+            url = f"{self.base_url}/audio/transcriptions"
             headers = {"Authorization": f"Bearer {self.api_key}"}
             
             with open(audio_path, 'rb') as f:
+                files = {
+                    'file': ('audio.wav', f, 'audio/wav'),
+                    'model': (None, 'FunAudioLLM/SenseVoiceSmall')
+                }
+                # 使用 form-data 方式
                 files = {'file': ('audio.wav', f, 'audio/wav')}
-                data = {'language': 'auto', 'format': 'wav'}
-                response = requests.post(url, files=files, data=data, headers=headers, timeout=30)
+                data = {
+                    'model': 'FunAudioLLM/SenseVoiceSmall',
+                    'language': 'auto',
+                    'response_format': 'json'
+                }
+                response = requests.post(url, files=files, data=data, headers=headers, timeout=60)
             
             if response.status_code == 200:
                 result = response.json()
-                text = result.get("text", "")
+                # 处理不同的响应格式
+                text = result.get("text", "") or result.get("data", {}).get("text", "")
                 return True, text
             else:
-                return False, f"API错误: {response.status_code}"
+                # 尝试另一种方式 - 使用 chat completions 方式的 ASR
+                return self._call_asr_via_chat(audio_path)
         except Exception as e:
-            return False, str(e)
+            # 备用方案
+            return self._call_asr_via_chat(audio_path)
+    
+    def _call_asr_via_chat(self, audio_path: str) -> Tuple[bool, str]:
+        """通过 chat 接口调用 ASR"""
+        try:
+            import requests
+            import base64
+            
+            # 读取音频文件
+            with open(audio_path, 'rb') as f:
+                audio_data = f.read()
+            
+            # 使用带有音频输入的模型
+            url = f"{self.base_url}/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            # 使用 SenseVoice 模型进行语音识别
+            payload = {
+                "model": "FunAudioLLM/SenseVoiceSmall",
+                "messages": [
+                    {
+                        "role": "user", 
+                        "content": [
+                            {"type": "audio", "audio_url": {"url": "data:audio/wav;base64," + base64.b64encode(audio_data).decode()}},
+                            {"type": "text", "text": "请识别这段音频中的语音内容，直接输出识别到的文字，不要其他内容。"}
+                        ]
+                    }
+                ],
+                "max_tokens": 1024
+            }
+            
+            response = requests.post(url, json=payload, headers=headers, timeout=60)
+            
+            if response.status_code == 200:
+                result = response.json()
+                content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                return True, content
+            else:
+                return False, f"API错误: {response.status_code} - {response.text[:100]}"
+        except Exception as e:
+            return False, f"ASR错误: {str(e)}"
     
     def call_expert_analysis(self, audio_path: str, asr_text: str) -> Tuple[bool, str]:
         """调用专家分析"""

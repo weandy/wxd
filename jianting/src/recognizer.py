@@ -87,6 +87,18 @@ class RecordingRecognizer:
         # 后台处理
         threading.Thread(target=self._do_recognize, args=(task,), daemon=True).start()
     
+    def _calculate_duration(self, filepath: str) -> float:
+        """从WAV文件计算时长"""
+        try:
+            import wave
+            with wave.open(filepath, 'rb') as wf:
+                frames = wf.getnframes()
+                rate = wf.getframerate()
+                return frames / rate if rate > 0 else 0
+        except Exception as e:
+            logger.warning(f"计算时长失败: {e}")
+            return 0
+    
     def _do_recognize(self, task: dict):
         """执行识别"""
         filepath = task['filepath']
@@ -97,6 +109,13 @@ class RecordingRecognizer:
         recorder_type = task['recorder_type']
         file_size = task['file_size']
         timestamp = task['timestamp']
+        
+        # 如果时长为0，从文件计算
+        if duration <= 0:
+            duration = self._calculate_duration(filepath)
+            logger.info(f"计算时长: {filepath} -> {duration:.2f}s")
+        
+        logger.info(f"开始识别: {os.path.basename(filepath)}, 时长={duration:.2f}s")
         
         try:
             # 先添加到数据库
@@ -114,7 +133,8 @@ class RecordingRecognizer:
                     timestamp=timestamp,
                     recognized=False
                 )
-                self._db.add_recording(rec)
+                rec_id = self._db.add_recording(rec)
+                logger.info(f"录音记录已添加: ID={rec_id}")
             
             # 执行识别
             processor = self._get_processor()
@@ -140,12 +160,24 @@ class RecordingRecognizer:
             logger.error(f"识别失败: {e}")
             import traceback
             logger.error(traceback.format_exc())
+            # 标记为识别失败
+            if self._db:
+                try:
+                    self._db.update_recording_recognition(
+                        filepath=filepath,
+                        asr_text=f"识别失败: {str(e)}",
+                        signal_type="ERROR",
+                        confidence=0,
+                        rms_db=0,
+                        snr_db=0
+                    )
+                except:
+                    pass
         
-        finally:
-            with self._lock:
-                self._processing = False
-            # 继续处理队列
-            self._process_next()
+        # 无论成功还是失败，都继续处理队列
+        with self._lock:
+            self._processing = False
+        self._process_next()
     
     def _print_result(self, ai_result, quality, suggestion, user_name, recorder_type):
         """打印识别结果到控制台"""
