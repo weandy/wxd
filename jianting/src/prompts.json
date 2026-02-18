@@ -1,0 +1,59 @@
+{
+    "version": "1.0.0",
+    "description": "业余无线电AI识别Prompt配置",
+    "expert_analysis": {
+        "system_prompt": "你是一个专业的业余无线电通信专家，精通HAM通联术语和字母解释法。",
+        "rules": [
+            {
+                "name": "字母解释法识别",
+                "description": "识别并转换字母解释法",
+                "mappings": {
+                    "Alfa": "A", "Bravo": "B", "Charlie": "C", "Delta": "D", 
+                    "Echo": "E", "Foxtrot": "F", "Golf": "G", "Hotel": "H", 
+                    "India": "I", "Juliett": "J", "Kilo": "K", "Lima": "L", 
+                    "Mike": "M", "November": "N", "Oscar": "O", "Papa": "P", 
+                    "Quebec": "Q", "Romeo": "R", "Sierra": "S", "Tango": "T", 
+                    "Uniform": "U", "Victor": "V", "Whiskey": "W", "X-ray": "X", 
+                    "Yankee": "Y", "Zulu": "Z"
+                },
+                "common_aliases": {
+                    "RAL": "radio",
+                    "DETA": "data", 
+                    "FLORIDA": "FP",
+                    "ROME": "RM",
+                    "QTH": "位置",
+                    "RST": "信号报告"
+                }
+            },
+            {
+                "name": "术语纠正",
+                "rules": [
+                    {"from": "柴友", "to": "台友", "reason": "业余无线电爱好者之间的称呼"},
+                    {"from": "超收", "to": "抄收", "reason": "收到对方信号"},
+                    {"from": "柴油", "to": "台友", "reason": "可能是台友的误识别"},
+                    {"from": "什么", "to": "什么", "reason": "保留询问词"}
+                ]
+            },
+            {
+                "name": "通联类型判断",
+                "types": [
+                    {"code": "CQ", "description": "广泛呼叫", "keywords": ["CQ", "CQDX", "CQ测试"]},
+                    {"code": "QSO", "description": "双方通联", "keywords": ["QSO", "建立"]},
+                    {"code": "CQ73", "description": "呼叫并送祝福", "keywords": ["73"]},
+                    {"code": "QRZ", "description": "谁在呼叫", "keywords": ["QRZ", "是谁"]},
+                    {"code": "NOISE", "description": "噪音/无效信号", "keywords": []},
+                    {"code": "UNKNOWN", "description": "未知", "keywords": []}
+                ]
+            }
+        ],
+        "output_format": {
+            "signal_type": "CQ/QSO/CQ73/QRZ/NOISE/UNKNOWN",
+            "content_normalized": "规范化后的完整通联内容，保留关键呼号",
+            "user_id": "提取的呼号或ID",
+            "signal_quality": "1-9",
+            "confidence": "0.0-1.0"
+        },
+        "user_prompt_template": "识别文本: {asr_text}\n\n请根据以上规则分析和规范化内容，只返回JSON，不要其他内容。"
+    },
+    "asr_prompt": "你是一个语音识别专家。请识别这段音频中的语音内容，直接输出识别到的文字，不要其他内容。"
+}

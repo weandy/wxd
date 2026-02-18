@@ -264,6 +264,36 @@ class AIClient:
     def __init__(self, api_key: str, base_url: str = "https://api.siliconflow.cn/v1"):
         self.api_key = api_key
         self.base_url = base_url
+        self.prompts = self._load_prompts()
+    
+    def _load_prompts(self) -> Dict[str, Any]:
+        """从配置文件加载prompt"""
+        prompt_file = os.path.join(SCRIPT_DIR, "prompts.json")
+        default_prompts = {
+            "expert_analysis": {
+                "system_prompt": "你是一个专业的业余无线电通信专家，精通HAM通联术语和字母解释法。",
+                "user_prompt_template": "识别文本: {asr_text}\n\n请根据以上规则分析和规范化内容，只返回JSON，不要其他内容。",
+                "output_format": {
+                    "signal_type": "CQ/QSO/CQ73/QRZ/NOISE/UNKNOWN",
+                    "content_normalized": "规范化后的完整通联内容，保留关键呼号",
+                    "user_id": "提取的呼号或ID",
+                    "signal_quality": "1-9",
+                    "confidence": "0.0-1.0"
+                }
+            },
+            "asr_prompt": "你是一个语音识别专家。请识别这段音频中的语音内容，直接输出识别到的文字，不要其他内容。"
+        }
+        
+        try:
+            if os.path.exists(prompt_file):
+                with open(prompt_file, 'r', encoding='utf-8') as f:
+                    loaded = json.load(f)
+                    print(f"[AIClient] 已加载Prompt配置: {prompt_file}")
+                    return loaded
+        except Exception as e:
+            print(f"[AIClient] 加载Prompt配置失败，使用默认: {e}")
+        
+        return default_prompts
     
     def call_asr(self, audio_path: str) -> Tuple[bool, str]:
         """调用ASR识别 - 使用 SiliconFlow SenseVoice"""
@@ -344,7 +374,7 @@ class AIClient:
             return False, f"ASR错误: {str(e)}"
     
     def call_expert_analysis(self, audio_path: str, asr_text: str) -> Tuple[bool, str]:
-        """调用专家分析"""
+        """调用专家分析 - 使用外部配置的prompt"""
         try:
             import requests
             
@@ -359,38 +389,19 @@ class AIClient:
                 "Content-Type": "application/json"
             }
             
-            prompt = f"""你是一个专业的业余无线电通信专家，精通HAM通联术语和字母解释法。
+            # 从加载的配置中获取prompt
+            expert_config = self.prompts.get("expert_analysis", {})
+            system_prompt = expert_config.get("system_prompt", "你是一个业余无线电通信专家。")
+            user_template = expert_config.get("user_prompt_template", "识别文本: {asr_text}")
+            output_format = expert_config.get("output_format", {})
+            
+            # 构建完整的prompt
+            prompt = f"""{system_prompt}
 
-识别文本: {asr_text}
+{user_template.format(asr_text)}
 
-请根据以下规则分析和规范化内容：
-
-1. 字母解释法识别：识别并转换字母解释法
-   - Alfa(A), Bravo(B), Charlie(C), Delta(D), Echo(E), Foxtrot(F), Golf(G), Hotel(H), India(I), Juliett(J), Kilo(K), Lima(L), Mike(M), November(N), Oscar(O), Papa(P), Quebec(Q), Romeo(R), Sierra(S), Tango(T), Uniform(U), Victor(V), Whiskey(W), X-ray(X), Yankee(Y), Zulu(Z)
-   - 也识别中文简写：如"RAL"="radio" ,"DETA"="data", "FLORIDAIDA PAPA"="FP"
-
-2. 术语纠正：
-   - "柴友" → "台友" (业余无线电爱好者之间的称呼)
-   - "超收" → "抄收" (收到对方信号)
-   - "柴油" → 可能是"台友"或设备描述
-
-3. 呼号识别：从文本中提取ham呼号或用户ID
-
-4. 通联类型判断：
-   - CQ: 广泛呼叫
-   - QSO: 双方通联
-   - QRZ: 谁在呼叫
-   - 73: 祝福
-   - 88: 爱吻
-
-请返回JSON格式结果:
-{{
-    "signal_type": "CQ/QSO/CQ73/QRZ/NOISE/UNKNOWN",
-    "content_normalized": "规范化后的完整通联内容，保留关键呼号",
-    "user_id": "提取的呼号或ID",
-    "signal_quality": "1-9",
-    "confidence": 0.0-1.0
-}}
+输出格式:
+{json.dumps(output_format, ensure_ascii=False)}
 
 只返回JSON，不要其他内容。"""
             

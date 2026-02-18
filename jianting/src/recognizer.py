@@ -153,6 +153,7 @@ class RecordingRecognizer:
                 self._db.update_recording_recognition(
                     filepath=filepath,
                     asr_text=ai_result.content,
+                    content_normalized=ai_result.content_normalized,
                     signal_type=ai_result.signal_type,
                     confidence=ai_result.confidence,
                     rms_db=quality.rms_db,
@@ -171,6 +172,7 @@ class RecordingRecognizer:
                     self._db.update_recording_recognition(
                         filepath=filepath,
                         asr_text=f"识别失败: {str(e)}",
+                        content_normalized="",
                         signal_type="ERROR",
                         confidence=0,
                         rms_db=0,

@@ -60,6 +60,7 @@ class Recording:
     # 识别状态
     recognized: bool = False    # 是否已识别
     asr_text: str = ""         # ASR识别文本
+    content_normalized: str = "" # 规范化后的文本
     signal_type: str = ""      # 信号类型
     confidence: float = 0.0     # 置信度
     
@@ -159,6 +160,7 @@ class Database:
                 -- 识别状态
                 recognized INTEGER DEFAULT 0,
                 asr_text TEXT,
+                content_normalized TEXT,
                 signal_type TEXT,
                 confidence REAL,
                 
@@ -394,9 +396,9 @@ class Database:
             INSERT INTO recordings (
                 filepath, filename, channel_id, user_id, user_name,
                 recorder_type, duration, file_size, timestamp,
-                recognized, asr_text, signal_type, confidence,
+                recognized, asr_text, content_normalized, signal_type, confidence,
                 rms_db, snr_db
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             recording.filepath,
             recording.filename,
@@ -409,6 +411,7 @@ class Database:
             recording.timestamp,
             1 if recording.recognized else 0,
             recording.asr_text,
+            recording.content_normalized,
             recording.signal_type,
             recording.confidence,
             recording.rms_db,
@@ -423,6 +426,7 @@ class Database:
     
     def update_recording_recognition(self, filepath: str, 
                                      asr_text: str = "", 
+                                     content_normalized: str = "",
                                      signal_type: str = "",
                                      confidence: float = 0.0,
                                      rms_db: float = 0.0,
@@ -433,10 +437,10 @@ class Database:
         
         cursor.execute("""
             UPDATE recordings 
-            SET recognized = 1, asr_text = ?, signal_type = ?, 
+            SET recognized = 1, asr_text = ?, content_normalized = ?, signal_type = ?, 
                 confidence = ?, rms_db = ?, snr_db = ?
             WHERE filepath = ?
-        """, (asr_text, signal_type, confidence, rms_db, snr_db, filepath))
+        """, (asr_text, content_normalized, signal_type, confidence, rms_db, snr_db, filepath))
         
         affected = cursor.rowcount
         conn.commit()
@@ -491,10 +495,11 @@ class Database:
                 timestamp=row[9],
                 recognized=bool(row[10]),
                 asr_text=row[11] or "",
-                signal_type=row[12] or "",
-                confidence=row[13] or 0.0,
-                rms_db=row[14] or 0.0,
-                snr_db=row[15] or 0.0
+                content_normalized=row[12] or "",
+                signal_type=row[13] or "",
+                confidence=row[14] or 0.0,
+                rms_db=row[15] or 0.0,
+                snr_db=row[16] or 0.0
             )
             recordings.append(recording)
         
@@ -529,10 +534,11 @@ class Database:
             timestamp=row[9],
             recognized=bool(row[10]),
             asr_text=row[11] or "",
-            signal_type=row[12] or "",
-            confidence=row[13] or 0.0,
-            rms_db=row[14] or 0.0,
-            snr_db=row[15] or 0.0
+            content_normalized=row[12] or "",
+            signal_type=row[13] or "",
+            confidence=row[14] or 0.0,
+            rms_db=row[15] or 0.0,
+            snr_db=row[16] or 0.0
         )
     
     def close(self):
