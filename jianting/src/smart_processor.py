@@ -601,45 +601,64 @@ ASR识别结果: "{asr_text}"
                 "Content-Type": "application/json"
             }
             
-            # 从加载的配置中获取prompt
-            expert_config = self.prompts.get("expert_analysis", {})
-            system_prompt = expert_config.get("system_prompt", "你是一个业余无线电通信专家。")
-            
-            # 获取纠正规则
-            correction_rules = expert_config.get("correction_rules", {})
-            common_mistakes = correction_rules.get("common_mistakes", [])
-            number_mappings = correction_rules.get("number_mappings", {})
-            
-            # 构建纠正规则文本
-            corrections_text = "\n".join([f'"{m["from"]}" → "{m["to"]}"' for m in common_mistakes[:10]])
-            numbers_text = ", ".join([f'"{k}"={v}' for k,v in number_mappings.items()])
-            
-            output_format = expert_config.get("output_format", {})
+            # 优先使用prompts.md的完整内容
+            prompt_md = getattr(self, 'prompt_md', '')
             
             # 构建综合分析的prompt - 强制基于实际识别结果，禁止猜测
-            # 如果两个识别结果相同，直接使用；如果不同，选择更合理的
-            # 如果识别结果是无意义内容（如"测试测试"），应返回空内容
-            prompt = f"""你是一个严格的业余无线电通信分析助手。
+            if prompt_md:
+                # 使用prompts.md的完整规则
+                prompt = f"""{prompt_md}
 
-## 原始识别结果 (必须严格基于这些结果，禁止编造!):
-- SenseVoice识别结果: "{sensevoice_result}"
-- Qwen识别结果: "{expert_result}"
+---
 
-## 重要规则:
-1. 如果两个识别结果相同，直接使用该结果
-2. 如果两个结果不同，选择更通顺合理的那个
-3. **禁止猜测**: 绝对不允许生成原始识别结果中没有的内容!
-4. **无意义内容**: 如果识别结果是"测试测试"、"啊啊"、"嗯嗯"等无意义内容，必须返回空内容
-5. 只进行必要的纠错(如"柴友"→"台友")，不要改变原始识别的内容
+## 原始识别结果 (必须严格基于这些结果):
+- SenseVoice: "{sensevoice_result}"
+- Qwen: "{expert_result}"
 
-## 呼号格式:
-- 中国呼号: 2-6位字母数字组合(如BG1ABC, BD1NA)
-- 呼号必须来自上述识别结果，不能猜测
+## 处理规则:
+1. 如果两个结果相同，直接使用
+2. 如果不同，选择更通顺合理的
+3. **禁止猜测**: 不允许生成原结果中没有的内容!
+4. 无意义内容(测试/啊啊)返回空
 
-## 输出格式 (只返回JSON):
+## 输出JSON:
+{{"signal_type":"CQ/QSO/CQ73/QRZ/NOISE/UNKNOWN","content_normalized":"修正后的文本","user_id":"呼号","signal_quality":"1-9","confidence":0.0-1.0}}
+
+只返回JSON。"""
+            else:
+                # 回退到prompts.json
+                expert_config = self.prompts.get("expert_analysis", {})
+                system_prompt = expert_config.get("system_prompt", "你是一个业余无线电通信专家。")
+                correction_rules = expert_config.get("correction_rules", {})
+                common_mistakes = correction_rules.get("common_mistakes", [])
+                number_mappings = correction_rules.get("number_mappings", {})
+                
+                corrections_text = "\n".join([f'"{m["from"]}" → "{m["to"]}"' for m in common_mistakes[:15]])
+                numbers_text = ", ".join([f'"{k}"={v}' for k,v in number_mappings.items()])
+                
+                output_format = expert_config.get("output_format", {})
+                
+                prompt = f"""你是一个严格的业余无线电通信分析助手。
+
+## 原始识别结果:
+- SenseVoice: "{sensevoice_result}"  
+- Qwen: "{expert_result}"
+
+## 纠正规则:
+{corrections_text}
+
+## 数字映射:
+{numbers_text}
+
+## 规则:
+1. 如果两个结果相同，直接使用
+2. 禁止猜测，不生成原结果中没有的内容
+3. 无意义内容返回空
+
+## 输出格式:
 {json.dumps(output_format, ensure_ascii=False)}
 
-严格遵守上述规则，只返回JSON。"""
+只返回JSON。"""
             
             payload = {
                 "model": self.expert_model,
