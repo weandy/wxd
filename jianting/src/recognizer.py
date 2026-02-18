@@ -99,6 +99,11 @@ class RecordingRecognizer:
             logger.warning(f"计算时长失败: {e}")
             return 0
     
+    def get_pending_count(self) -> int:
+        """获取待处理队列数量"""
+        with self._lock:
+            return len(self._pending_queue) + (1 if self._processing else 0)
+    
     def _do_recognize(self, task: dict):
         """执行识别"""
         filepath = task['filepath']

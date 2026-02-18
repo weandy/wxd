@@ -305,6 +305,25 @@ def main():
         print("\n开始扫描处理...")
         recognizer.process_existing_recordings("recordings", max_count=50)
         
+        # 等待识别完成 (最多等待5分钟)
+        print("\n等待识别完成...")
+        import time
+        max_wait = 300  # 5分钟
+        start_time = time.time()
+        
+        while time.time() - start_time < max_wait:
+            time.sleep(2)
+            # 检查待处理队列
+            pending = recognizer.get_pending_count()
+            if pending == 0:
+                print(f"✅ 全部识别完成!")
+                break
+            print(f"   还有 {pending} 个文件待处理...")
+        
+        # 显示最终状态
+        print()
+        show_recordings_status(db)
+        
         return
     
     # 启动机器人服务 (伪实时识别)

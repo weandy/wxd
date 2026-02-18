@@ -240,20 +240,29 @@ class BotServer:
                 logger.info("10秒后重试连接...")
                 time.sleep(10)
 
-    def _setup_recorder(self):
-        """启动频道录制器，连接到混音器"""
+    def _setup_recorder(self, recording_callback=None):
+        """启动频道录制器，连接到混音器
+        
+        Args:
+            recording_callback: 录音完成回调函数
+        """
         from channel_recorder import ChannelRecorder
 
+        # 统一目录: recordings/ (会自动按日期创建子目录)
         # RX 录音器 (接收/监听录音)
         self._recorder = ChannelRecorder(
-            base_dir="recordings/rx",
-            channel_id=self.target_channel_id
+            base_dir="recordings",
+            channel_id=self.target_channel_id,
+            recorder_type="RX",
+            on_recording_complete=recording_callback
         )
 
         # TX 录音器 (发射录音)
         self._tx_recorder = ChannelRecorder(
-            base_dir="recordings/tx",
-            channel_id=self.target_channel_id
+            base_dir="recordings",
+            channel_id=self.target_channel_id,
+            recorder_type="TX",
+            on_recording_complete=recording_callback
         )
 
         # 等待混音器初始化 (它在 listen 线程中创建)
@@ -437,12 +446,72 @@ class BotServer:
         t.start()
 
 
+def create_recording_callback(recognizer, channel_id):
+    """创建录音完成回调函数"""
+    def callback(filepath: str, duration: float, user_id: str, user_name: str):
+        recognizer.on_recording_complete(
+            filepath=filepath,
+            duration=duration,
+            user_id=user_id,
+            user_name=user_name,
+            channel_id=channel_id,
+            recorder_type="RX"  # 会在内部判断
+        )
+    return callback
+
+
 if __name__ == "__main__":
     # 配置
     USERNAME = "bswxd"
     PASSWORD = "BsWxd2026"
-    CHANNEL_ID = 28951  # 目标频道ID
+    CHANNEL_ID = 62793  # 目标频道ID
     CHANNEL_PASSCODE = 0 # 频道密码 (如果有)
+
+    # 尝试加载环境变量配置
+    import os
+    try:
+        from src.config import load_env_file, get_config
+        load_env_file(".env")
+        config = get_config()
+        
+        if config.dsp.enabled and config.api.siliconflow_key:
+            # 创建识别器
+            from src.recognizer import RecordingRecognizer
+            recognizer = RecordingRecognizer(
+                api_key=config.api.siliconflow_key,
+                dsp_config={
+                    "algorithm": config.dsp.algorithm,
+                    "agc_mode": config.dsp.agc_mode,
+                    "snr_threshold_high": config.dsp.snr_threshold_high,
+                    "snr_threshold_low": config.dsp.snr_threshold_low
+                }
+            )
+            
+            # 设置数据库
+            from src.database import get_database
+            db = get_database(config.database.path)
+            recognizer.set_database(db)
+            
+            # 创建回调函数
+            recording_callback = create_recording_callback(recognizer, CHANNEL_ID)
+            
+            print("🎯 伪实时识别已启用")
+            
+            # 修改 BotServer 来使用回调
+            original_setup = BotServer._setup_recorder
+            
+            def new_setup(self, callback=None):
+                return original_setup(self, recording_callback)
+            
+            BotServer._setup_recorder = new_setup
+            
+            print("✅ 识别器已集成到 bot_server")
+        else:
+            print("⚠️  DSP未启用或API Key未配置，只录制不识别")
+            recording_callback = None
+    except Exception as e:
+        print(f"⚠️  识别器初始化失败: {e}")
+        recording_callback = None
 
     bot = BotServer(USERNAME, PASSWORD, CHANNEL_ID, CHANNEL_PASSCODE)
     try:
