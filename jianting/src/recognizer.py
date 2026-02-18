@@ -15,9 +15,17 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
-# 使用日志配置模块
-from .logging_setup import setup_logger
-logger = setup_logger("Recognizer", "recognize")
+# 延迟导入日志配置，避免相对导入问题
+import logging
+def _get_logger():
+    try:
+        from .logging_setup import setup_logger
+        return setup_logger("Recognizer", "recognize")
+    except ImportError:
+        # 回退到标准logging
+        return logging.getLogger("Recognizer")
+
+logger = _get_logger()
 
 
 class RecordingRecognizer:

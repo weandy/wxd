@@ -21,10 +21,18 @@ import numpy as np
 from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass
 from functools import wraps
+import logging
 
-# 使用日志配置模块
-from .logging_setup import setup_logger
-logger = setup_logger("SmartProcessor", "recognize")
+# 延迟导入日志配置，避免相对导入问题
+def _get_logger():
+    try:
+        from .logging_setup import setup_logger
+        return setup_logger("SmartProcessor", "recognize")
+    except ImportError:
+        # 回退到标准logging
+        return logging.getLogger("SmartProcessor")
+
+logger = _get_logger()
 
 
 def retry_on_error(max_attempts: int = 3, backoff: float = 1.0, 
