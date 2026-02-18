@@ -362,33 +362,10 @@ class AIClient:
         self.prompt_md = self._load_prompt_md()  # 加载md格式的prompt
     
     def _load_prompts(self) -> Dict[str, Any]:
-        """从配置文件加载prompt"""
-        prompt_file = os.path.join(SCRIPT_DIR, "prompts.json")
-        default_prompts = {
-            "expert_analysis": {
-                "system_prompt": "你是一个专业的业余无线电通信专家，精通HAM通联术语和字母解释法。",
-                "user_prompt_template": "识别文本: {asr_text}\n\n请根据以上规则分析和规范化内容，只返回JSON，不要其他内容。",
-                "output_format": {
-                    "signal_type": "CQ/QSO/CQ73/QRZ/NOISE/UNKNOWN",
-                    "content_normalized": "规范化后的完整通联内容，保留关键呼号",
-                    "user_id": "提取的呼号或ID",
-                    "signal_quality": "1-9",
-                    "confidence": "0.0-1.0"
-                }
-            },
-            "asr_prompt": "你是一个语音识别专家。请识别这段音频中的语音内容，直接输出识别到的文字，不要其他内容。"
-        }
-        
-        try:
-            if os.path.exists(prompt_file):
-                with open(prompt_file, 'r', encoding='utf-8') as f:
-                    loaded = json.load(f)
-                    print(f"[AIClient] 已加载Prompt配置: {prompt_file}")
-                    return loaded
-        except Exception as e:
-            print(f"[AIClient] 加载Prompt配置失败，使用默认: {e}")
-        
-        return default_prompts
+        """从配置文件加载prompt - 只使用prompts.md"""
+        # prompts.json 已弃用，只保留 prompts.md
+        # 保留此方法以兼容旧代码，返回空字典
+        return {}
     
     def _load_prompt_md(self) -> str:
         """从prompts.md加载prompt"""
@@ -754,6 +731,7 @@ class SmartAudioProcessor:
             # 6. 三级处理: SenseVoice + Qwen专家模型 + 综合分析
             
             # 6.1 SenseVoice ASR识别
+            logger.info("[识别] 调用 SenseVoice...")
             success, sensevoice_text = self.ai.call_asr(audio_to_use)
             if not success:
                 return (
@@ -763,12 +741,21 @@ class SmartAudioProcessor:
                     quality,
                     suggestion
                 )
+            logger.info(f"[识别] SenseVoice结果: {sensevoice_text[:50]}...")
             
             # 6.2 Qwen专家模型识别 (二级处理)
+            logger.info("[识别] 调用 Qwen 专家模型...")
             success, expert_text = self.ai.call_expert_asr(audio_to_use)
             if not success:
                 # 如果专家模型识别失败，回退到只用SenseVoice
+                logger.warning(f"[识别] Qwen识别失败，回退到SenseVoice: {expert_text}")
                 expert_text = sensevoice_text
+            else:
+                # 检查两个结果是否一致
+                if sensevoice_text.strip() == expert_text.strip():
+                    logger.info("[识别] SenseVoice和Qwen结果一致")
+                else:
+                    logger.info(f"[识别] 两个模型结果不同:\n  SV: {sensevoice_text[:50]}...\n  QW: {expert_text[:50]}...")
             
             # 6.3 最终综合分析 (三级处理)
             # 无论两个识别结果是否相同，都需要专家分析确认信号类型、提取呼号等
