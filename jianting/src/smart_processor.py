@@ -752,19 +752,10 @@ class SmartAudioProcessor:
                 expert_text = sensevoice_text
             
             # 6.3 最终综合分析 (三级处理)
-            # 当两个识别结果相同且有效时，直接使用，跳过final_analysis
-            sensevoice_clean = sensevoice_text.strip() if sensevoice_text else ""
-            expert_clean = expert_text.strip() if expert_text else ""
-            
-            # 如果两个结果相同且有效，直接使用
-            if sensevoice_clean and sensevoice_clean == expert_clean:
-                analysis = f'{{"signal_type": "UNKNOWN", "content_normalized": "{sensevoice_clean}", "user_id": "", "signal_quality": "5", "confidence": 0.8}}'
-                logger.info(f"[快速路径] 识别结果一致，直接使用: {sensevoice_clean[:30]}")
-            else:
-                # 结果不同，调用final_analysis综合分析
-                success, analysis = self.ai.call_final_analysis(audio_to_use, sensevoice_text, expert_text)
-                if not success:
-                    analysis = ""
+            # 无论两个识别结果是否相同，都需要专家分析确认信号类型、提取呼号等
+            success, analysis = self.ai.call_final_analysis(audio_to_use, sensevoice_text, expert_text)
+            if not success:
+                analysis = ""
             
             # 记录原始识别结果
             asr_text = sensevoice_text
