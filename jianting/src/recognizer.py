@@ -7,6 +7,8 @@ import threading
 import logging
 from typing import Optional, Callable
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, Future
+import time
 
 # 添加路径
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -17,7 +19,7 @@ logger = logging.getLogger("Recognizer")
 
 
 class RecordingRecognizer:
-    """录音识别器 - 伪实时处理录音文件"""
+    """录音识别器 - 伪实时处理录音文件，支持并发识别"""
     
     def __init__(self, api_key: str, dsp_config: dict = None):
         self.api_key = api_key
@@ -28,6 +30,12 @@ class RecordingRecognizer:
         self._lock = threading.Lock()
         self._pending_queue = []  # 待识别队列
         self._processing = False
+        
+        # 并发识别配置
+        max_workers = int(dsp_config.get("max_concurrent_workers", 3)) if dsp_config else 3
+        self._executor = ThreadPoolExecutor(max_workers=max_workers)
+        self._active_futures = set()  # 跟踪活跃的识别任务
+        logger.info(f"[并发识别] 线程池初始化: {max_workers} 个工作线程")
     
     def set_database(self, db):
         """设置数据库实例"""
@@ -79,15 +87,32 @@ class RecordingRecognizer:
         self._process_next()
     
     def _process_next(self):
-        """处理下一个录音"""
+        """处理下一个录音 - 使用线程池并发"""
         with self._lock:
-            if self._processing or not self._pending_queue:
+            if not self._pending_queue:
                 return
-            self._processing = True
             task = self._pending_queue.pop(0)
         
-        # 后台处理
-        threading.Thread(target=self._do_recognize, args=(task,), daemon=True).start()
+        # 使用线程池提交任务
+        future = self._executor.submit(self._do_recognize, task)
+        future.add_done_callback(lambda f: self._on_task_done(f, task))
+        
+        with self._lock:
+            self._active_futures.add(future)
+    
+    def _on_task_done(self, future: Future, task: dict):
+        """任务完成回调"""
+        with self._lock:
+            self._active_futures.discard(future)
+        
+        # 处理异常
+        try:
+            future.result()
+        except Exception as e:
+            logger.error(f"[{task.get('filepath', 'unknown')}] 识别异常: {e}")
+        
+        # 继续处理队列
+        self._process_next()
     
     def _calculate_duration(self, filepath: str) -> float:
         """从WAV文件计算时长"""
@@ -104,7 +129,7 @@ class RecordingRecognizer:
     def get_pending_count(self) -> int:
         """获取待处理队列数量"""
         with self._lock:
-            return len(self._pending_queue) + (1 if self._processing else 0)
+            return len(self._pending_queue) + len(self._active_futures)
     
     def _do_recognize(self, task: dict):
         """执行识别"""
@@ -150,10 +175,45 @@ class RecordingRecognizer:
                     invalid_reason="duration_too_short"
                 )
             logger.info(f"✅ 标记为无效: {os.path.basename(filepath)}")
-            with self._lock:
-                self._processing = False
-            self._process_next()
             return
+        
+        # ===== 数据库缓存检查 =====
+        if self._db:
+            existing = self._db.get_recording_by_path(filepath)
+            if existing and existing.recognized and existing.asr_text and not existing.invalid_reason:
+                logger.info(f"[缓存] 使用已识别结果: {os.path.basename(filepath)}")
+                # 从数据库恢复识别结果并打印
+                from dataclasses import dataclass
+                @dataclass
+                class AIResult:
+                    content: str = ""
+                    content_normalized: str = ""
+                    signal_type: str = "UNKNOWN"
+                    confidence: float = 0.5
+                    user_id: str = ""
+                
+                @dataclass  
+                class AudioQuality:
+                    rms_db: float = 0.0
+                    snr_db: float = 0.0
+                
+                ai_result = AIResult(
+                    content=existing.asr_text or "",
+                    content_normalized=existing.content_normalized or "",
+                    signal_type=existing.signal_type or "UNKNOWN",
+                    confidence=existing.confidence or 0.5
+                )
+                quality = AudioQuality(
+                    rms_db=existing.rms_db or 0.0,
+                    snr_db=existing.snr_db or 0.0
+                )
+                suggestion = ""
+                
+                self._print_result(ai_result, quality, suggestion, user_name, recorder_type, 
+                                  existing.asr_text or "", existing.recognize_duration or 0, 
+                                  start_time, self.dsp_config.get("expert_model", "N/A"))
+                logger.info(f"[缓存] 识别完成: {os.path.basename(filepath)} (from cache)")
+                return
         
         try:
             # 先添加到数据库
@@ -227,10 +287,8 @@ class RecordingRecognizer:
                 except:
                     pass
         
-        # 无论成功还是失败，都继续处理队列
-        with self._lock:
-            self._processing = False
-        self._process_next()
+        # 无论成功还是失败，都由callback处理队列
+        pass
     
     def _print_result(self, ai_result, quality, suggestion, user_name, recorder_type, asr_raw="", recognize_duration=0.0, start_time="", expert_model=""):
         """打印识别结果到控制台"""
