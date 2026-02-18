@@ -20,7 +20,10 @@ def load_env_file(env_path: str = ".env") -> None:
             if not line or line.startswith('#'):
                 continue
             
-            # 解析 KEY=VALUE 格式
+            # 解析 KEY=VALUE 格式 - 先去掉行内注释
+            if '#' in line:
+                line = line.split('#')[0].strip()
+            
             if '=' in line:
                 key, value = line.split('=', 1)
                 key = key.strip()
@@ -83,12 +86,19 @@ class AppConfig:
         # 先加载 .env 文件
         load_env_file(env_path)
         
-        # BSHT配置
+        # BSHT配置 - 处理空字符串情况
+        def _get_int(env_key, default):
+            val = os.getenv(env_key, str(default))
+            try:
+                return int(val) if val else default
+            except ValueError:
+                return default
+        
         bsht = BSHTConfig(
             username=os.getenv("BSHT_USERNAME", ""),
             password=os.getenv("BSHT_PASSWORD", ""),
-            channel_id=int(os.getenv("BSHT_CHANNEL_ID", "0")),
-            channel_passcode=int(os.getenv("BSHT_CHANNEL_PASSCODE", "0"))
+            channel_id=_get_int("BSHT_CHANNEL_ID", 0),
+            channel_passcode=_get_int("BSHT_CHANNEL_PASSCODE", 0)
         )
         
         # API配置
@@ -112,7 +122,7 @@ class AppConfig:
         # 数据库配置
         database = DatabaseConfig(
             path=os.getenv("DATABASE_PATH", "data/records.db"),
-            max_records=int(os.getenv("DATABASE_MAX_RECORDS", "10000"))
+            max_records=_get_int("DATABASE_MAX_RECORDS", 10000)
         )
         
         return cls(bsht=bsht, api=api, dsp=dsp, database=database)

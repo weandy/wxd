@@ -1,8 +1,102 @@
 import time
 import sys
+import os
 import logging
 import threading
 from bsht_client import BSHTClient, TokenInfo, StatusCode, ChannelConnectionParams
+
+
+def interactive_select_channel(username: str, password: str) -> int:
+    """交互式选择频道
+    
+    Args:
+        username: BSHT用户名
+        password: BSHT密码
+        
+    Returns:
+        选择的频道ID
+    """
+    print("\n" + "=" * 50)
+    print("📡 交互式频道选择")
+    print("=" * 50)
+    
+    # 创建客户端并登录
+    client = BSHTClient(auto_refresh_token=True)
+    
+    print(f"\n[1] 登录账号: {username}")
+    login_result = client.login(username, password)
+    if not login_result.success:
+        print(f"  ❌ 登录失败: {login_result.message}")
+        return 0
+    
+    print(f"  ✓ 登录成功")
+    
+    # 获取用户加入的频道
+    print(f"\n[2] 获取加入的频道...")
+    channels_resp = client.get_user_channels(offset=0, limit=20)
+    if not channels_resp.success or not channels_resp.data:
+        print(f"  ❌ 获取频道失败或没有加入任何频道: {channels_resp.error}")
+        return 0
+    
+    channels = channels_resp.data
+    print(f"  ✓ 已加入 {len(channels)} 个频道")
+    
+    # 显示频道列表
+    print("\n📋 请选择要加入的频道:")
+    print("-" * 40)
+    for i, ch in enumerate(channels):
+        admin_tag = " [管理员]" if ch.is_admin else ""
+        banned_tag = " [已封禁]" if ch.is_banned else ""
+        print(f"  [{i + 1}] {ch.name} (ID: {ch.channel_id}){admin_tag}{banned_tag}")
+    print("-" * 40)
+    
+    # 让用户选择
+    while True:
+        try:
+            choice = input("\n👉 请输入频道编号 (1-{len(channels)}): ").strip()
+            idx = int(choice) - 1
+            if 0 <= idx < len(channels):
+                selected = channels[idx]
+                if selected.is_banned:
+                    print("  ⚠️ 该频道已被封禁，无法加入")
+                    continue
+                print(f"\n  ✓ 已选择: {selected.name} (ID: {selected.channel_id})")
+                
+                # 询问是否保存到.env
+                save = input("  💾 是否保存到 .env 文件? (y/n): ").strip().lower()
+                if save == 'y' or save == 'yes':
+                    # 读取现有.env
+                    env_path = ".env"
+                    env_vars = {}
+                    if os.path.exists(env_path):
+                        with open(env_path, 'r', encoding='utf-8') as f:
+                            for line in f:
+                                line = line.strip()
+                                if line and not line.startswith('#') and '=' in line:
+                                    key, val = line.split('=', 1)
+                                    env_vars[key.strip()] = val.strip().strip('"').strip("'")
+                    
+                    # 更新频道ID
+                    env_vars['BSHT_CHANNEL_ID'] = str(selected.channel_id)
+                    
+                    # 写回.env
+                    with open(env_path, 'w', encoding='utf-8') as f:
+                        f.write("# BSHT账号配置(前往客户端注册并且加入channel)\n")
+                        for key, val in env_vars.items():
+                            f.write(f"{key}={val}\n")
+                    
+                    print(f"  ✓ 已保存到 .env: BSHT_CHANNEL_ID={selected.channel_id}")
+                
+                return selected.channel_id
+            else:
+                print(f"  ❌ 请输入 1-{len(channels)} 之间的数字")
+        except ValueError:
+            print("  ❌ 请输入有效的数字")
+
+
+class BotServer:
+    pass
+
 
 # 配置日志
 logging.basicConfig(
@@ -466,16 +560,35 @@ def create_recording_callback(recognizer, channel_id):
 if __name__ == "__main__":
     # 加载环境变量配置
     import os
+    from src.config import load_env_file, get_config
+    load_env_file(".env")
+    config = get_config()
+    
+    # 优先使用环境变量中的配置 - 这些必须在try外部定义，确保始终可用
+    USERNAME = os.getenv("BSHT_USERNAME", config.bsht.username) or "bswxd"
+    PASSWORD = os.getenv("BSHT_PASSWORD", config.bsht.password) or "BsWxd2026"
+    
+    # 获取频道ID，如果为空或0则交互选择
+    env_channel_id = os.getenv("BSHT_CHANNEL_ID", "")
+    if env_channel_id:
+        try:
+            CHANNEL_ID = int(env_channel_id) if env_channel_id else 0
+        except ValueError:
+            CHANNEL_ID = 0
+    else:
+        CHANNEL_ID = 0
+    
+    # 如果没有配置频道ID，交互式选择
+    if CHANNEL_ID <= 0:
+        print("\n⚠️ 未配置频道ID或ID无效")
+        CHANNEL_ID = interactive_select_channel(USERNAME, PASSWORD)
+        if CHANNEL_ID <= 0:
+            print("❌ 无法获取有效频道ID，退出")
+            sys.exit(1)
+    
+    CHANNEL_PASSCODE = int(os.getenv("BSHT_CHANNEL_PASSCODE", str(config.bsht.channel_passcode)))
+    
     try:
-        from src.config import load_env_file, get_config
-        load_env_file(".env")
-        config = get_config()
-        
-        # 优先使用环境变量中的配置
-        USERNAME = os.getenv("BSHT_USERNAME", config.bsht.username) or "bswxd"
-        PASSWORD = os.getenv("BSHT_PASSWORD", config.bsht.password) or "BsWxd2026"
-        CHANNEL_ID = int(os.getenv("BSHT_CHANNEL_ID", config.bsht.channel_id or "0")) or 62793
-        CHANNEL_PASSCODE = int(os.getenv("BSHT_CHANNEL_PASSCODE", config.bsht.channel_passcode or "0"))
         
         print(f"📋 配置加载: 用户={USERNAME}, 频道={CHANNEL_ID}")
         
@@ -500,6 +613,14 @@ if __name__ == "__main__":
             from src.database import get_database
             db = get_database(config.database.path)
             recognizer.set_database(db)
+            
+            # 启动时扫描未入库的录音文件
+            print("🔍 扫描历史录音文件...")
+            added, processed = recognizer.scan_and_register_recordings("recordings", max_count=50)
+            if added > 0 or processed > 0:
+                print(f"   📝 新增 {added} 条记录, 识别 {processed} 个文件")
+            else:
+                print("   ✅ 没有需要处理的历史文件")
             
             # 创建回调函数
             recording_callback = create_recording_callback(recognizer, CHANNEL_ID)

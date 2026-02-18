@@ -71,6 +71,9 @@ class Recording:
     
     # 识别耗时
     recognize_duration: float = 0.0  # 识别耗时(秒)
+    
+    # 无效音频标记
+    invalid_reason: str = ""  # 无效原因 (empty=有效, "duration_too_short"=时长不足等)
 
 
 class Database:
@@ -174,7 +177,10 @@ class Database:
                 snr_db REAL,
                 
                 -- 识别耗时
-                recognize_duration REAL
+                recognize_duration REAL,
+                
+                -- 无效音频标记
+                invalid_reason TEXT DEFAULT ''
             )
         """)
         
@@ -188,6 +194,12 @@ class Database:
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_rec_channel ON recordings(channel_id, recorder_type)
         """)
+        
+        # 数据库迁移：添加invalid_reason字段（如果不存在）
+        try:
+            cursor.execute("ALTER TABLE recordings ADD COLUMN invalid_reason TEXT DEFAULT ''")
+        except:
+            pass  # 字段可能已存在
         
         conn.commit()
         conn.close()
@@ -440,7 +452,8 @@ class Database:
                                      confidence: float = 0.0,
                                      rms_db: float = 0.0,
                                      snr_db: float = 0.0,
-                                     recognize_duration: float = 0.0) -> bool:
+                                     recognize_duration: float = 0.0,
+                                     invalid_reason: str = "") -> bool:
         """更新录音的识别结果"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -448,9 +461,9 @@ class Database:
         cursor.execute("""
             UPDATE recordings 
             SET recognized = 1, asr_text = ?, content_normalized = ?, signal_type = ?, 
-                confidence = ?, rms_db = ?, snr_db = ?, recognize_duration = ?
+                confidence = ?, rms_db = ?, snr_db = ?, recognize_duration = ?, invalid_reason = ?
             WHERE filepath = ?
-        """, (asr_text, content_normalized, signal_type, confidence, rms_db, snr_db, recognize_duration, filepath))
+        """, (asr_text, content_normalized, signal_type, confidence, rms_db, snr_db, recognize_duration, invalid_reason, filepath))
         
         affected = cursor.rowcount
         conn.commit()

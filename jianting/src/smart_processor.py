@@ -15,9 +15,12 @@ import wave
 import tempfile
 import shutil
 import threading
+import logging
 import numpy as np
 from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass
+
+logger = logging.getLogger("SmartProcessor")
 
 # 路径配置
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -94,21 +97,38 @@ class AudioQualityAnalyzer:
             peak = np.max(np.abs(audio))
             peak_db = 20 * np.log10(peak + 1e-10)
             
-            # 噪声估计 (取能量最低的段落)
-            frame_size = 960
+            # 噪声估计 - 使用整个音频分析，取能量最低的段落
+            # 使用更小的帧来获得更准确的噪声估计
+            frame_size = 480  # 10ms @ 48kHz
             n_frames = len(audio) // frame_size
-            energies = []
-            for i in range(min(n_frames, 50)):
-                frame = audio[i*frame_size:(i+1)*frame_size]
-                energies.append(np.mean(frame ** 2))
             
-            if energies:
-                noise_floor = np.percentile(energies, 10)
-                noise_db = 20 * np.log10(noise_floor + 1e-10)
+            if n_frames < 10:
+                # 音频太短，使用固定估算
+                noise_db = -60
                 snr_db = rms_db - noise_db
             else:
-                noise_db = -60
-                snr_db = 0
+                # 计算所有帧的能量
+                energies = []
+                for i in range(n_frames):
+                    frame = audio[i*frame_size:(i+1)*frame_size]
+                    energies.append(np.mean(frame ** 2))
+                
+                energies = np.array(energies)
+                
+                # 取能量最低的20%作为噪声估计（更保守的估计）
+                if len(energies) > 0:
+                    noise_floor = np.percentile(energies, 20)
+                    noise_db = 20 * np.log10(noise_floor + 1e-10)
+                    snr_db = rms_db - noise_db
+                    
+                    # 防止异常值
+                    if snr_db < 0:
+                        snr_db = 0
+                    elif snr_db > 80:  # 异常高可能是计算错误
+                        snr_db = 80
+                else:
+                    noise_db = -60
+                    snr_db = 0
             
             # 动态范围
             dynamic_range = peak_db - rms_db
@@ -269,6 +289,7 @@ class AIClient:
         self.base_url = base_url
         self.expert_model = expert_model
         self.prompts = self._load_prompts()
+        self.prompt_md = self._load_prompt_md()  # 加载md格式的prompt
     
     def _load_prompts(self) -> Dict[str, Any]:
         """从配置文件加载prompt"""
@@ -299,6 +320,19 @@ class AIClient:
         
         return default_prompts
     
+    def _load_prompt_md(self) -> str:
+        """从prompts.md加载prompt"""
+        md_file = os.path.join(SCRIPT_DIR, "prompts.md")
+        if os.path.exists(md_file):
+            try:
+                with open(md_file, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    print(f"[AIClient] 已加载Prompt MD: {md_file}")
+                    return content
+            except Exception as e:
+                print(f"[AIClient] 加载Prompt MD失败: {e}")
+        return ""
+    
     def call_asr(self, audio_path: str) -> Tuple[bool, str]:
         """调用ASR识别 - 使用 SiliconFlow SenseVoice"""
         try:
@@ -310,14 +344,11 @@ class AIClient:
             
             with open(audio_path, 'rb') as f:
                 files = {
-                    'file': ('audio.wav', f, 'audio/wav'),
-                    'model': (None, 'FunAudioLLM/SenseVoiceSmall')
+                    'file': ('audio.wav', f, 'audio/wav')
                 }
-                # 使用 form-data 方式
-                files = {'file': ('audio.wav', f, 'audio/wav')}
                 data = {
                     'model': 'FunAudioLLM/SenseVoiceSmall',
-                    'language': 'auto',
+                    'language': 'zh',  # 强制中文识别
                     'response_format': 'json'
                 }
                 response = requests.post(url, files=files, data=data, headers=headers, timeout=60)
@@ -359,7 +390,7 @@ class AIClient:
                         "role": "user", 
                         "content": [
                             {"type": "audio", "audio_url": {"url": "data:audio/wav;base64," + base64.b64encode(audio_data).decode()}},
-                            {"type": "text", "text": "请识别这段音频中的语音内容，直接输出识别到的文字，不要其他内容。"}
+                            {"type": "text", "text": "请识别这段音频中的中文语音内容，直接输出识别到的中文文字，不要其他内容。如果不是中文，请输出空。"}
                         ]
                     }
                 ],
@@ -378,7 +409,7 @@ class AIClient:
             return False, f"ASR错误: {str(e)}"
     
     def call_expert_analysis(self, audio_path: str, asr_text: str) -> Tuple[bool, str]:
-        """调用专家分析 - 使用外部配置的prompt"""
+        """调用专家分析 - 优先使用prompts.md"""
         try:
             import requests
             
@@ -388,35 +419,40 @@ class AIClient:
                 "Content-Type": "application/json"
             }
             
-            # 从加载的配置中获取prompt
-            expert_config = self.prompts.get("expert_analysis", {})
-            system_prompt = expert_config.get("system_prompt", "你是一个业余无线电通信专家。")
-            
-            # 获取纠正规则
-            correction_rules = expert_config.get("correction_rules", {})
-            common_mistakes = correction_rules.get("common_mistakes", [])
-            number_mappings = correction_rules.get("number_mappings", {})
-            
-            # 构建纠正规则文本
-            corrections_text = "\n".join([f'"{m["from"]}" → "{m["to"]}"' for m in common_mistakes[:10]])
-            numbers_text = ", ".join([f'"{k}"={v}' for k,v in number_mappings.items()])
-            
-            user_template = expert_config.get("user_prompt_template", "ASR: {asr_text}")
-            output_format = expert_config.get("output_format", {})
-            
-            # 构建完整的prompt - 增加纠正规则
-            prompt = f"""{system_prompt}
+            # 优先使用prompts.md
+            if self.prompt_md:
+                prompt = f"""{self.prompt_md}
 
-## 常见错误纠正规则 (重要!):
+---
+
+ASR识别结果: "{asr_text}"
+
+请根据上述规则修正识别结果，只返回JSON格式:
+{{"signal_type":"CQ/QSO/CQ73/QRZ/NOISE/UNKNOWN","content_normalized":"修正后的文本","user_id":"呼号","signal_quality":"1-9","confidence":0.0-1.0}}
+
+只返回JSON。"""
+            else:
+                # 回退到prompts.json
+                expert_config = self.prompts.get("expert_analysis", {})
+                system_prompt = expert_config.get("system_prompt", "你是一个业余无线电通信专家。")
+                correction_rules = expert_config.get("correction_rules", {})
+                common_mistakes = correction_rules.get("common_mistakes", [])
+                number_mappings = correction_rules.get("number_mappings", {})
+                
+                corrections_text = "\n".join([f'"{m["from"]}" → "{m["to"]}"' for m in common_mistakes[:10]])
+                numbers_text = ", ".join([f'"{k}"={v}' for k,v in number_mappings.items()])
+                
+                user_template = expert_config.get("user_prompt_template", "ASR: {asr_text}")
+                output_format = expert_config.get("output_format", {})
+                
+                prompt = f"""{system_prompt}
+
 {corrections_text}
 
-## 数字映射:
 {numbers_text}
 
-## 处理任务:
 {user_template.format(asr_text)}
 
-## 输出格式:
 {json.dumps(output_format, ensure_ascii=False)}
 
 只返回JSON，不要其他内容。"""
@@ -509,26 +545,30 @@ class AIClient:
             
             output_format = expert_config.get("output_format", {})
             
-            # 构建综合分析的prompt
-            prompt = f"""{system_prompt}
+            # 构建综合分析的prompt - 强制基于实际识别结果，禁止猜测
+            # 如果两个识别结果相同，直接使用；如果不同，选择更合理的
+            # 如果识别结果是无意义内容（如"测试测试"），应返回空内容
+            prompt = f"""你是一个严格的业余无线电通信分析助手。
 
-## 识别结果对比:
-- SenseVoice识别: "{sensevoice_result}"
-- Qwen专家模型识别: "{expert_result}"
+## 原始识别结果 (必须严格基于这些结果，禁止编造!):
+- SenseVoice识别结果: "{sensevoice_result}"
+- Qwen识别结果: "{expert_result}"
 
-## 常见错误纠正规则 (重要!):
-{corrections_text}
+## 重要规则:
+1. 如果两个识别结果相同，直接使用该结果
+2. 如果两个结果不同，选择更通顺合理的那个
+3. **禁止猜测**: 绝对不允许生成原始识别结果中没有的内容!
+4. **无意义内容**: 如果识别结果是"测试测试"、"啊啊"、"嗯嗯"等无意义内容，必须返回空内容
+5. 只进行必要的纠错(如"柴友"→"台友")，不要改变原始识别的内容
 
-## 数字映射:
-{numbers_text}
+## 呼号格式:
+- 中国呼号: 2-6位字母数字组合(如BG1ABC, BD1NA)
+- 呼号必须来自上述识别结果，不能猜测
 
-## 任务:
-请综合以上两个识别结果，判断哪个更准确，或者结合两者的优点给出最终识别结果。识别内容应为业余无线电通联语音。
-
-## 输出格式:
+## 输出格式 (只返回JSON):
 {json.dumps(output_format, ensure_ascii=False)}
 
-只返回JSON，不要其他内容。"""
+严格遵守上述规则，只返回JSON。"""
             
             payload = {
                 "model": self.expert_model,
@@ -641,7 +681,19 @@ class SmartAudioProcessor:
                 expert_text = sensevoice_text
             
             # 6.3 最终综合分析 (三级处理)
-            success, analysis = self.ai.call_final_analysis(audio_to_use, sensevoice_text, expert_text)
+            # 当两个识别结果相同且有效时，直接使用，跳过final_analysis
+            sensevoice_clean = sensevoice_text.strip() if sensevoice_text else ""
+            expert_clean = expert_text.strip() if expert_text else ""
+            
+            # 如果两个结果相同且有效，直接使用
+            if sensevoice_clean and sensevoice_clean == expert_clean:
+                analysis = f'{{"signal_type": "UNKNOWN", "content_normalized": "{sensevoice_clean}", "user_id": "", "signal_quality": "5", "confidence": 0.8}}'
+                logger.info(f"[快速路径] 识别结果一致，直接使用: {sensevoice_clean[:30]}")
+            else:
+                # 结果不同，调用final_analysis综合分析
+                success, analysis = self.ai.call_final_analysis(audio_to_use, sensevoice_text, expert_text)
+                if not success:
+                    analysis = ""
             
             # 记录原始识别结果
             asr_text = sensevoice_text
@@ -659,19 +711,28 @@ class SmartAudioProcessor:
                 expert_content=expert_text
             )
             
-            if success:
+            if analysis:
                 try:
                     # 解析JSON
                     analysis_json = analysis.replace("```json", "").replace("```", "").strip()
                     data = json.loads(analysis_json)
                     
-                    ai_result.signal_type = data.get("signal_type", "UNKNOWN")
-                    ai_result.content_normalized = data.get("content_normalized", asr_text)
-                    ai_result.user_id = data.get("user_id", "")
-                    ai_result.signal_quality = data.get("signal_quality", "5")
-                    ai_result.confidence = data.get("confidence", 0.5)
+                    # 只有当原始ASR有内容时才接受识别结果
+                    normalized = data.get("content_normalized", "")
+                    if normalized and normalized.strip():
+                        ai_result.signal_type = data.get("signal_type", "UNKNOWN")
+                        ai_result.content_normalized = normalized
+                        ai_result.user_id = data.get("user_id", "")
+                        ai_result.signal_quality = data.get("signal_quality", "5")
+                        ai_result.confidence = data.get("confidence", 0.5)
+                    else:
+                        # ASR没有识别到内容，标记失败
+                        ai_result.success = False
+                        ai_result.error = "ASR未识别到内容"
                 except:
-                    pass
+                    # JSON解析失败，标记失败
+                    ai_result.success = False
+                    ai_result.error = "响应解析失败"
             
             # 8. 分析处理后质量
             if use_processed:

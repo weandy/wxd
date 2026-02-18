@@ -123,11 +123,21 @@ class RecordingRecognizer:
             duration = self._calculate_duration(filepath)
             logger.info(f"计算时长: {filepath} -> {duration:.2f}s")
         
+        # 获取无效音频时长阈值配置 - 去除注释部分
+        import os as os_module
+        env_val = os_module.getenv('INVALID_AUDIO_DURATION', '1.0')
+        # 去除注释（如 "1.0  # 注释" -> "1.0"）
+        env_val = env_val.split('#')[0].strip()
+        try:
+            invalid_duration_threshold = float(env_val) if env_val else 1.0
+        except ValueError:
+            invalid_duration_threshold = 1.0
+        
         logger.info(f"开始识别: {os.path.basename(filepath)}, 时长={duration:.2f}s, 开始时间={start_time}")
         
-        # 时长过滤：低于1秒的录音标记为无效，不上传云端识别
-        if duration < 1.0:
-            logger.info(f"录音时长 {duration:.2f}s < 1s，标记为无效")
+        # 时长过滤：低于阈值的录音标记为无效，但仍存储
+        if invalid_duration_threshold > 0 and duration < invalid_duration_threshold:
+            logger.info(f"录音时长 {duration:.2f}s < {invalid_duration_threshold}s，标记为无效")
             if self._db:
                 self._db.update_recording_recognition(
                     filepath=filepath,
@@ -136,7 +146,8 @@ class RecordingRecognizer:
                     signal_type="INVALID",
                     confidence=0,
                     rms_db=0,
-                    snr_db=0
+                    snr_db=0,
+                    invalid_reason="duration_too_short"
                 )
             logger.info(f"✅ 标记为无效: {os.path.basename(filepath)}")
             with self._lock:
@@ -264,7 +275,11 @@ class RecordingRecognizer:
             if ai_result.user_id:
                 print(f"   📻 呼号: {ai_result.user_id}")
             
-            conf = ai_result.confidence
+            # 确保confidence是浮点数
+            try:
+                conf = float(ai_result.confidence)
+            except (ValueError, TypeError):
+                conf = 0.5
             conf_color = "🟢" if conf > 0.8 else "🟡" if conf > 0.5 else "🔴"
             print(f"   {conf_color} 置信度: {conf*100:.1f}%")
         else:
@@ -272,12 +287,31 @@ class RecordingRecognizer:
         
         print("=" * 60)
     
-    def process_existing_recordings(self, base_dir: str = "recordings", 
-                                     max_count: int = 50):
-        """处理已存在的录音文件 (批量识别)"""
-        logger.info(f"扫描已有录音: {base_dir}")
+    def scan_and_register_recordings(self, base_dir: str = "recordings", 
+                                      max_count: int = 100):
+        """扫描录音目录，将未入库的文件添加到数据库，并识别未处理的
         
-        processed = 0
+        1. 首先扫描所有音频文件
+        2. 将不在数据库中的文件添加到数据库
+        3. 对未识别的文件进行识别（低于时长的直接标记无效）
+        """
+        import re
+        import wave
+        import os as os_module
+        
+        logger.info(f"[扫描] 开始扫描录音目录: {base_dir}")
+        
+        # 获取无效音频时长阈值 - 去除注释部分
+        env_val = os_module.getenv('INVALID_AUDIO_DURATION', '1.0')
+        env_val = env_val.split('#')[0].strip()
+        try:
+            invalid_duration_threshold = float(env_val) if env_val else 1.0
+        except ValueError:
+            invalid_duration_threshold = 1.0
+        logger.info(f"[扫描] 无效音频时长阈值: {invalid_duration_threshold}s")
+        
+        # 第一步：找出所有需要入库的文件
+        files_to_add = []  # [(filepath, filename, status, duration, timestamp)]
         for root, dirs, files in os.walk(base_dir):
             for filename in files:
                 if not filename.endswith('.wav'):
@@ -285,45 +319,112 @@ class RecordingRecognizer:
                 
                 filepath = os.path.join(root, filename)
                 
-                # 检查是否已识别
-                if self._db:
-                    existing = self._db.get_recording_by_path(filepath)
-                    if existing and existing.recognized:
-                        continue
-                
-                # 获取文件信息
+                # 检查文件是否存在
                 file_size = os.path.getsize(filepath)
-                if file_size <= 44:
+                if file_size <= 44:  # 跳过空文件
                     continue
                 
-                # 解析文件名: 001_123456_153045.wav
-                parts = filename.replace('.wav', '').split('_')
-                if len(parts) >= 3:
-                    user_id = parts[1]
-                else:
-                    user_id = "unknown"
+                # 从路径获取日期时间作为 start_time
+                date_match = re.search(r'(\d{4}-\d{2}-\d{2})', filepath)
+                timestamp = date_match.group(1) if date_match else ""
                 
-                logger.info(f"处理: {filename}")
+                # 计算音频时长
+                try:
+                    with wave.open(filepath, 'rb') as wf:
+                        frames = wf.getnframes()
+                        rate = wf.getframerate()
+                        duration = frames / float(rate)
+                except:
+                    duration = 0.0
                 
-                # 触发识别
-                self.on_recording_complete(
-                    filepath=filepath,
-                    duration=0,  # 需要从文件计算
-                    user_id=user_id,
-                    user_name=user_id,
-                    channel_id=0,
-                    recorder_type="RX"
-                )
+                # 检查是否已在数据库中
+                if self._db:
+                    existing = self._db.get_recording_by_path(filepath)
+                    if existing:
+                        # 已在数据库中，检查是否需要识别
+                        if not existing.recognized and existing.invalid_reason == "":
+                            # 需要识别但还未识别，加入队列
+                            files_to_add.append((filepath, filename, "needs_recognition", duration, timestamp))
+                        continue
                 
-                processed += 1
-                if processed >= max_count:
-                    logger.info(f"已达到最大处理数量: {max_count}")
-                    break
-            
-            if processed >= max_count:
-                break
+                # 不在数据库中，需要添加
+                files_to_add.append((filepath, filename, "new", duration, timestamp))
         
-        logger.info(f"已添加到处理队列: {processed} 个文件")
+        logger.info(f"[扫描] 发现 {len(files_to_add)} 个需要处理的文件")
+        
+        # 第二步：将新文件添加到数据库（低于时长的直接标记无效）
+        added_count = 0
+        recognized_count = 0
+        for filepath, filename, status, duration, timestamp in files_to_add:
+            if status == "new":
+                # 解析文件名获取用户信息
+                parts = filename.replace('.wav', '').split('_')
+                user_id = parts[1] if len(parts) >= 3 else "unknown"
+                
+                # 检查时长是否低于阈值
+                if invalid_duration_threshold > 0 and duration > 0 and duration < invalid_duration_threshold:
+                    # 时长不足，标记为无效
+                    logger.info(f"[扫描] 时长不足({duration:.1f}s < {invalid_duration_threshold}s): {filename}")
+                    if self._db:
+                        from src.database import Recording
+                        recording = Recording(
+                            filepath=filepath,
+                            filename=filename,
+                            channel_id=0,
+                            user_id=user_id,
+                            user_name=user_id,
+                            recorder_type="RX",
+                            duration=duration,
+                            start_time=timestamp,
+                            file_size=os.path.getsize(filepath),
+                            timestamp=timestamp,
+                            recognized=True,  # 已处理
+                            invalid_reason="duration_too_short"
+                        )
+                        self._db.add_recording(recording)
+                        added_count += 1
+                else:
+                    # 时长正常，添加到数据库待识别
+                    if self._db:
+                        from src.database import Recording
+                        recording = Recording(
+                            filepath=filepath,
+                            filename=filename,
+                            channel_id=0,
+                            user_id=user_id,
+                            user_name=user_id,
+                            recorder_type="RX",
+                            duration=duration,
+                            start_time=timestamp,
+                            file_size=os.path.getsize(filepath),
+                            timestamp=timestamp,
+                            recognized=False
+                        )
+                        self._db.add_recording(recording)
+                        added_count += 1
+                        # 触发识别
+                        logger.info(f"[扫描] 识别: {filename} ({duration:.1f}s)")
+                        self.on_recording_complete(
+                            filepath=filepath,
+                            duration=duration,
+                            start_time=timestamp,
+                            user_id=user_id,
+                            user_name=user_id,
+                            channel_id=0,
+                            recorder_type="RX"
+                        )
+                        recognized_count += 1
+                        if recognized_count >= max_count:
+                            logger.info(f"[扫描] 已达到最大处理数量: {max_count}")
+                            break
+        
+        logger.info(f"[扫描] 完成: 新增 {added_count} 条记录, 识别 {recognized_count} 个文件")
+        return added_count, recognized_count
+    
+    def process_existing_recordings(self, base_dir: str = "recordings", 
+                                     max_count: int = 50):
+        """处理已存在的录音文件 (批量识别) - 兼容旧接口"""
+        return self.scan_and_register_recordings(base_dir, max_count)
 
 
 def create_recording_callback(recognizer):
