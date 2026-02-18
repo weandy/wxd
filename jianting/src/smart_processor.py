@@ -406,7 +406,7 @@ class AIClient:
 只返回JSON，不要其他内容。"""
             
             payload = {
-                "model": "Qwen/Qwen3-8B",
+                "model": "Qwen/Qwen2.5-7B-Instruct",
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 512
             }

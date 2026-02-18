@@ -122,6 +122,25 @@ class RecordingRecognizer:
         
         logger.info(f"开始识别: {os.path.basename(filepath)}, 时长={duration:.2f}s")
         
+        # 时长过滤：低于1秒的录音标记为无效，不上传云端识别
+        if duration < 1.0:
+            logger.info(f"录音时长 {duration:.2f}s < 1s，标记为无效")
+            if self._db:
+                self._db.update_recording_recognition(
+                    filepath=filepath,
+                    asr_text="",
+                    content_normalized="",
+                    signal_type="INVALID",
+                    confidence=0,
+                    rms_db=0,
+                    snr_db=0
+                )
+            logger.info(f"✅ 标记为无效: {os.path.basename(filepath)}")
+            with self._lock:
+                self._processing = False
+            self._process_next()
+            return
+        
         try:
             # 先添加到数据库
             if self._db:
