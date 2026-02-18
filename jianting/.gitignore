@@ -13,7 +13,3 @@ audio_*.raw
 .idea/
 .git/
 credentials.json
-.worktrees/
-.env
-audio.db
-*.log
