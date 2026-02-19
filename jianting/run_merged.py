@@ -52,7 +52,8 @@ class Runner:
 
         app = create_app()
 
-        # 在独立线程中运行 SocketIO（非 daemon，确保正确清理）
+        # 在独立线程中运行 SocketIO
+        # 注意：daemon=True 确保主线程退出时 Web 线程能自动终止
         def run_socketio():
             try:
                 socketio.run(app, host='0.0.0.0', port=port, debug=False)
@@ -62,7 +63,7 @@ class Runner:
             finally:
                 logger.info("Web 服务已停止")
 
-        self.web_thread = threading.Thread(target=run_socketio, daemon=False)
+        self.web_thread = threading.Thread(target=run_socketio, daemon=True)
         self.web_thread.start()
 
         # 等待服务启动
