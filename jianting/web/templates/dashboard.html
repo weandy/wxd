@@ -94,51 +94,51 @@
 <script>
     const API = window.BSHTApp;
 
-    // ========== Bot WebSocket 连接 ==========
-    let botWs = null;
+    // ========== Bot Socket.IO 连接 ==========
+    let botSocket = null;
 
-    function setupBotWs() {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const botWsUrl = `${protocol}//${window.location.host}/bot`;
+    function setupBotSocket() {
+        // 使用 Socket.IO 连接到 /bot 命名空间
+        botSocket = io('/bot', {
+            transports: ['websocket', 'polling']
+        });
 
-        botWs = new WebSocket(botWsUrl);
+        botSocket.on('connect', () => {
+            console.log('Bot Socket.IO 已连接');
+        });
 
-        botWs.onopen = () => {
-            console.log('Bot WS 已连接');
-        };
+        botSocket.on('bot:connected', (data) => {
+            console.log('Bot 已认证:', data);
+        });
 
-        botWs.onmessage = (event) => {
-            try {
-                const msg = JSON.parse(event.data);
-                console.log('Bot WS 消息:', msg.type);
+        botSocket.on('bot:status', (data) => {
+            console.log('Bot 状态:', data);
+            handleBotStatus(data);
+        });
 
-                switch (msg.type) {
-                    case 'bot:status':
-                        handleBotStatus(msg.data);
-                        break;
-                    case 'bot:channel':
-                        handleChannelUpdate(msg.data);
-                        break;
-                    case 'bot:recording':
-                        handleNewRecording(msg.data);
-                        break;
-                    case 'bot:speaking':
-                        handleUserSpeaking(msg.data);
-                        break;
-                }
-            } catch (e) {
-                console.error('Bot WS 消息解析失败:', e);
-            }
-        };
+        botSocket.on('bot:channel', (data) => {
+            console.log('频道更新:', data);
+            handleChannelUpdate(data);
+        });
 
-        botWs.onclose = () => {
-            console.log('Bot WS 断开，5秒后重连...');
-            setTimeout(setupBotWs, 5000);
-        };
+        botSocket.on('bot:recording', (data) => {
+            console.log('新录音:', data);
+            handleNewRecording(data);
+        });
 
-        botWs.onerror = (err) => {
-            console.error('Bot WS 错误:', err);
-        };
+        botSocket.on('bot:speaking', (data) => {
+            console.log('说话状态:', data);
+            handleUserSpeaking(data);
+        });
+
+        botSocket.on('disconnect', () => {
+            console.log('Bot Socket.IO 断开，5秒后重连...');
+            setTimeout(setupBotSocket, 5000);
+        });
+
+        botSocket.on('connect_error', (err) => {
+            console.error('Bot Socket.IO 连接错误:', err);
+        });
     }
 
     function handleBotStatus(data) {
@@ -179,8 +179,8 @@
         // 可以添加视觉提示
     }
 
-    // 启动 Bot WebSocket
-    setupBotWs();
+    // 启动 Bot Socket.IO
+    setupBotSocket();
 
     async function loadDashboard() {
         // Bot 状态

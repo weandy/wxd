@@ -5,14 +5,28 @@ import logging
 import threading
 from bsht_client import BSHTClient, TokenInfo, StatusCode, ChannelConnectionParams
 
-# WebSocket 客户端 (可选导入)
+# 共享状态模块 (可选导入)
 try:
-    from bot_ws_client import get_bot_ws_client
-    HAS_BOT_WS = True
+    from src.bot_state import get_bot_state
+    from web.routes.websocket import (
+        broadcast_bot_status,
+        broadcast_channel_update,
+        broadcast_speaking,
+        broadcast_recording
+    )
+    HAS_BOT_STATE = True
 except ImportError:
-    HAS_BOT_WS = False
-    def get_bot_ws_client():
+    HAS_BOT_STATE = False
+    def get_bot_state():
         return None
+    def broadcast_bot_status():
+        pass
+    def broadcast_channel_update(*args, **kwargs):
+        pass
+    def broadcast_speaking(*args, **kwargs):
+        pass
+    def broadcast_recording(*args, **kwargs):
+        pass
 
 
 def interactive_select_channel(username: str, password: str) -> int:
@@ -181,18 +195,11 @@ class BotServer:
             logger.error("无法登录，机器人停止")
             return
 
-        # 推送 Bot 启动状态
-        if HAS_BOT_WS:
-            ws = get_bot_ws_client()
-            if ws and ws.connected:
-                ws.push_status({
-                    'running': True,
-                    'channel_id': self.target_channel_id,
-                    'channel_name': '',
-                    'online_count': 0,
-                    'uptime': '0s',
-                    'pid': os.getpid()
-                })
+        # 更新共享状态并广播
+        if HAS_BOT_STATE:
+            state = get_bot_state()
+            state.update(running=True, channel_id=self.target_channel_id)
+            broadcast_bot_status()
 
         # 2. 启动主循环
         self._main_loop()
@@ -304,11 +311,8 @@ class BotServer:
                         stop_name = self.user_cache.get(frame.user_id, f"用户({frame.user_id})")
                         logger.info(f"🔴 停止说话: {stop_name}")
                         del self.active_speakers[frame.user_id]
-                        # 推送停止说话状态
-                        if HAS_BOT_WS:
-                            ws = get_bot_ws_client()
-                            if ws and ws.connected:
-                                ws.push_speaking(str(frame.user_id), stop_name, False)
+                        # 广播停止说话状态
+                        broadcast_speaking(str(frame.user_id), stop_name, False)
                     return
 
                 # 说话者检测: 仅在新说话者首次出现时打印日志
@@ -319,11 +323,8 @@ class BotServer:
                     else:
                         prefix = "🎤 开始说话"
                     logger.info(f"{prefix}: {name} ({frame.user_id})")
-                    # 推送开始说话状态
-                    if HAS_BOT_WS:
-                        ws = get_bot_ws_client()
-                        if ws and ws.connected:
-                            ws.push_speaking(str(frame.user_id), name, True)
+                    # 广播开始说话状态
+                    broadcast_speaking(str(frame.user_id), name, True)
                 
                 # 更新时间戳 (无论新旧说话者)
                 self.active_speakers[frame.user_id] = current_time
@@ -373,15 +374,11 @@ class BotServer:
                     if conn_result.success:
                         logger.info(f"语音服务器连接成功: {conn_result.data['ip']}:{conn_result.data['port']}")
 
-                        # 推送频道状态
-                        if HAS_BOT_WS:
-                            ws = get_bot_ws_client()
-                            if ws and ws.connected:
-                                ws.push_channel(
-                                    channel_id=self.target_channel_id,
-                                    channel_name=f"频道{self.target_channel_id}",
-                                    online_count=0
-                                )
+                        # 更新共享状态并广播
+                        if HAS_BOT_STATE:
+                            state = get_bot_state()
+                            state.update(channel_name=f"频道{self.target_channel_id}", online_count=0)
+                            broadcast_channel_update(self.target_channel_id, state.channel_name, 0)
 
                         # 3. 启动监听 (包含 UDP 心跳)
                         if self.listener.start_listening():
@@ -530,11 +527,8 @@ class BotServer:
                     name = self.user_cache.get(uid, f"用户({uid})")
                     logger.info(f"🔴 停止说话: {name}")
                     del self.active_speakers[uid]
-                    # 推送停止说话状态
-                    if HAS_BOT_WS:
-                        ws = get_bot_ws_client()
-                        if ws and ws.connected:
-                            ws.push_speaking(str(uid), name, False)
+                    # 广播停止说话状态
+                    broadcast_speaking(str(uid), name, False)
 
                 # --- 2. Application Layer Heartbeat (GetChannelStatus) ---
                 # Check every 30 seconds
