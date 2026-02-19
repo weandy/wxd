@@ -115,6 +115,11 @@ print(f"📝 日志文件: logs/bot_server.log (按天轮转, 保留7天)")
 print(f"📝 识别日志: logs/recognize.log")
 print(f"📝 错误日志: logs/error.log\n")
 
+# 导入异步优化模块
+import time
+import threading
+from async_optimization import get_metrics_collector, get_thread_pool, timed_sync
+
 class BotServer:
     def __init__(self, username, password, target_channel_id, channel_passcode=0):
         self.username = username
@@ -123,6 +128,39 @@ class BotServer:
         self.channel_passcode = channel_passcode
         self.client = BSHTClient(auto_refresh_token=True)
         self.is_running = False
+
+        # 初始化异步优化组件
+        self.metrics = get_metrics_collector()
+        self.thread_pool = get_thread_pool()
+
+        # 启动性能监控线程
+        self._start_metrics_monitor()
+
+        logger.info("异步优化组件已初始化")
+
+    def _start_metrics_monitor(self):
+        """启动性能监控线程 (每60秒报告一次)"""
+        def monitor():
+            while self.is_running:
+                time.sleep(60)
+                self._print_metrics_summary()
+
+        self._monitor_thread = threading.Thread(target=monitor, daemon=True)
+        self._monitor_thread.start()
+
+    def _print_metrics_summary(self):
+        """打印性能指标摘要"""
+        logger.info("=" * 40)
+        logger.info("📊 性能指标报告")
+        logger.info("=" * 40)
+
+        for m in self.metrics.get_all_metrics():
+            if m.count > 0:
+                logger.info(f"{m.operation}: "
+                          f"次数={m.count}, "
+                          f"平均={m.avg_time*1000:.1f}ms, "
+                          f"最大={m.max_time*1000:.1f}ms, "
+                          f"错误={m.errors}({m.error_rate*100:.1f}%)")
 
     def start(self):
         """启动机器人"""
@@ -143,8 +181,10 @@ class BotServer:
         self.client.close()
         logger.info("机器人已停止")
 
+    @timed_sync("bot_server.login")
     def _login(self) -> bool:
-        """处理登录逻辑"""
+        """处理登录逻辑 (带性能计时)"""
+        start_time = time.time()
         # 尝试加载本地凭证
         if self.client.load_credentials():
             logger.info("已加载本地凭证")
@@ -177,6 +217,7 @@ class BotServer:
             logger.error(f"登录失败: {result.error}")
             return False
 
+    @timed_sync("bot_server.token_refresh")
     def _on_token_refreshed(self, token_info: TokenInfo):
         """Token 刷新回调"""
         logger.info("Token 已自动刷新，正在保存新凭证...")
@@ -267,7 +308,9 @@ class BotServer:
             try:
                 # 1. 检查是否在频道中 (优先从已加入列表中查找)
                 logger.info("获取用户频道列表...")
+                start = time.time()
                 user_channels_result = self.client.get_user_channels()
+                self.metrics.record("api.get_user_channels", time.time() - start)
                 is_joined = False
                 
                 if user_channels_result.success:
@@ -279,7 +322,9 @@ class BotServer:
                 
                 if not is_joined:
                     logger.info(f"未加入，尝试加入目标频道: {self.target_channel_id}")
+                    start = time.time()
                     join_result = self.client.join_channel(self.target_channel_id, self.channel_passcode)
+                    self.metrics.record("api.join_channel", time.time() - start)
                     if join_result.success:
                         logger.info("加入频道成功")
                         is_joined = True
@@ -289,8 +334,10 @@ class BotServer:
                 if is_joined:
                     # 2. 连接语音服务器
                     logger.info("正在连接语音服务器...")
+                    start = time.time()
                     conn_result = self.listener.connect(self.target_channel_id)
-                    
+                    self.metrics.record("audio.connect", time.time() - start)
+
                     if conn_result.success:
                         logger.info(f"语音服务器连接成功: {conn_result.data['ip']}:{conn_result.data['port']}")
                         
@@ -335,6 +382,7 @@ class BotServer:
                 logger.info("10秒后重试连接...")
                 time.sleep(10)
 
+    @timed_sync("bot_server.setup_recorder")
     def _setup_recorder(self, recording_callback=None):
         """启动频道录制器，连接到混音器
         
@@ -372,6 +420,7 @@ class BotServer:
 
         logger.warning("混音器未就绪，录制器未能连接")
 
+    @timed_sync("bot_server.preload_members")
     def _preload_member_names(self):
         """预加载频道成员昵称"""
         import threading
@@ -416,6 +465,7 @@ class BotServer:
         t = threading.Thread(target=_do_preload, daemon=True)
         t.start()
 
+    @timed_sync("bot_server.keep_alive_loop")
     def _keep_alive_loop(self):
         """频道内保活循环 (包含 PTT Release 检测)"""
         last_heartbeat_time = time.time()
@@ -443,8 +493,10 @@ class BotServer:
                 # Check every 30 seconds
                 if current_time - last_heartbeat_time >= 30:
                     last_heartbeat_time = current_time
-                    
+
+                    start = time.time()
                     status_result = self.client.get_channel_status(self.target_channel_id)
+                    self.metrics.record("api.get_channel_status", time.time() - start)
                     if status_result.success:
                         online_count = len(status_result.data.get('online_users', []))
                         logger.info(f"[状态监控] 频道在线: {online_count} 人")
@@ -469,7 +521,9 @@ class BotServer:
                             time.sleep(2)
                             
                             # 重新连接
+                            start = time.time()
                             conn_result = self.listener.connect(self.target_channel_id)
+                            self.metrics.record("audio.reconnect", time.time() - start)
                             if conn_result.success:
                                 if self.listener.start_listening():
                                     logger.info(f"✅ 重新连接成功 (尝试 {reconnect_count + 1})")
