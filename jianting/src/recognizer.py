@@ -233,6 +233,9 @@ class RecordingRecognizer:
                     signal_type: str = "UNKNOWN"
                     confidence: float = 0.5
                     user_id: str = ""
+                    sensevoice_content: str = ""  # 添加缺失的属性
+                    success: bool = True  # 添加 success 属性
+                    error: str = ""  # 添加 error 属性
                 
                 @dataclass  
                 class AudioQuality:
