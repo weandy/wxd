@@ -1816,69 +1816,101 @@ class AudioStreamListener:
             pkt.marker = 1
         return pkt.pack()
 
-    # ==================== TX 发射链路 ====================
+    # ==================== TX 发射链路 (线程安全版本) ====================
+
+    # 发射状态枚举
+    class _TransmitState:
+        """发射状态常量"""
+        IDLE = 0
+        STARTING = 1
+        TRANSMITTING = 2
+        STOPPING = 3
 
     def start_transmit(self) -> bool:
         """
-        开始发射 (PTT按下)
+        开始发射 (PTT按下) - 线程安全版本
 
         启动录音 → Opus编码 → RTP发送 管道
 
         Returns:
             是否成功启动
         """
-        logger.info(f"[TX] start_transmit 调用, 当前 _is_transmitting={getattr(self, '_is_transmitting', False)}")
+        logger.info("[TX] start_transmit 调用")
 
         if not self._socket or not self._is_listening:
             logger.warning("[TX] 错误: 未连接到语音服务器")
             return False
 
-        # 使用锁保护 _is_transmitting 标志的检查和设置
+        # 快速路径检查 - 避免不必要的锁竞争
         with self._transmit_lock:
-            if hasattr(self, '_is_transmitting') and self._is_transmitting:
+            current_state = getattr(self, '_tx_state', self._TransmitState.IDLE)
+
+            if current_state == self._TransmitState.TRANSMITTING:
                 logger.info("[TX] 已在发射中，忽略重复调用")
                 return True
 
-            # 标记状态 (在锁内设置，确保原子性)
-            self._is_transmitting = True
+            if current_state in (self._TransmitState.STARTING, self._TransmitState.STOPPING):
+                logger.warning(f"[TX] 状态转换中: {current_state}，忽略调用")
+                return False
+
+            # 状态转换: IDLE -> STARTING
+            self._tx_state = self._TransmitState.STARTING
 
         try:
-            from audio_codec import OpusEncoder, AudioRecorder, SAMPLE_RATE, FRAME_SIZE
-            import numpy as np
-
-            # 初始化编码器 (只创建一次)
-            if not hasattr(self, '_tx_encoder') or self._tx_encoder is None:
-                self._tx_encoder = OpusEncoder(
-                    sample_rate=SAMPLE_RATE,
-                    frame_size=FRAME_SIZE,
-                    bitrate=32000
-                )
-
-            # 初始化录音器 (只创建一次，复用实例)
-            if not hasattr(self, '_tx_recorder') or self._tx_recorder is None:
-                self._tx_recorder = AudioRecorder(
-                    sample_rate=SAMPLE_RATE,
-                    frame_size=FRAME_SIZE,
-                    channels=1
-                )
-
-            # 确保录音流已打开 (保持常开，PTT按下时零延迟)
-            if not self._tx_recorder.is_recording:
-                if not self._tx_recorder.start_recording():
-                    logger.error("[TX] 启动录音失败")
-                    # 失败时需要重置状态
-                    with self._transmit_lock:
-                        self._is_transmitting = False
+            # === 初始化阶段 (双重检查锁定，所有初始化都在锁内) ===
+            with self._transmit_lock:
+                # 再次检查状态，防止在等待锁时状态已改变
+                if self._tx_state != self._TransmitState.STARTING:
+                    logger.warning(f"[TX] 状态已改变，取消启动: {self._tx_state}")
                     return False
 
-            # 初始化停止事件和标志
-            self._tx_stop_event = threading.Event()
-            self._tx_first_packet = True  # Marker 位标志
-            self._tx_frame_count = 0      # 帧计数
-            self._tx_start_time = time.time()  # 开始时间
+                # 初始化编码器 (只创建一次)
+                if not hasattr(self, '_tx_encoder') or self._tx_encoder is None:
+                    logger.debug("[TX] 初始化编码器")
+                    from audio_codec import OpusEncoder, SAMPLE_RATE, FRAME_SIZE
 
-            # 启动发射线程
-            self._tx_thread = threading.Thread(target=self._transmit_loop, daemon=True)
+                    self._tx_encoder = OpusEncoder(
+                        sample_rate=SAMPLE_RATE,
+                        frame_size=FRAME_SIZE,
+                        bitrate=32000
+                    )
+
+                # 初始化录音器 (只创建一次，复用实例)
+                if not hasattr(self, '_tx_recorder') or self._tx_recorder is None:
+                    logger.debug("[TX] 初始化录音器")
+                    from audio_codec import AudioRecorder, SAMPLE_RATE, FRAME_SIZE
+
+                    self._tx_recorder = AudioRecorder(
+                        sample_rate=SAMPLE_RATE,
+                        frame_size=FRAME_SIZE,
+                        channels=1
+                    )
+
+                # 确保录音流已打开 (保持常开，PTT按下时零延迟)
+                if not self._tx_recorder.is_recording:
+                    logger.debug("[TX] 启动录音流")
+                    if not self._tx_recorder.start_recording():
+                        raise RuntimeError("启动录音失败")
+
+                # 初始化停止事件和标志
+                if not hasattr(self, '_tx_stop_event') or self._tx_stop_event is None:
+                    self._tx_stop_event = threading.Event()
+                else:
+                    self._tx_stop_event.clear()
+
+                self._tx_first_packet = True  # Marker 位标志
+                self._tx_frame_count = 0      # 帧计数
+                self._tx_start_time = time.time()  # 开始时间
+
+                # 状态转换: STARTING -> TRANSMITTING (原子操作)
+                self._tx_state = self._TransmitState.TRANSMITTING
+
+            # === 启动发射线程 (在锁外，避免死锁) ===
+            self._tx_thread = threading.Thread(
+                target=self._transmit_loop,
+                name="TX-Transmit",
+                daemon=True
+            )
             self._tx_thread.start()
 
             logger.info("[TX] 🟢 开始发射")
@@ -1886,36 +1918,68 @@ class AudioStreamListener:
 
         except ImportError as e:
             logger.error(f"[TX] 缺少依赖: {e}")
+            # 回滚状态
             with self._transmit_lock:
-                self._is_transmitting = False
+                self._tx_state = self._TransmitState.IDLE
             return False
         except Exception as e:
             logger.error(f"[TX] 启动发射失败: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            # 回滚状态
             with self._transmit_lock:
-                self._is_transmitting = False
+                self._tx_state = self._TransmitState.IDLE
             return False
 
     def stop_transmit(self):
         """
-        停止发射 (PTT松开)
+        停止发射 (PTT松开) - 线程安全版本
         """
-        logger.info(f"[TX] stop_transmit 调用, 当前 _is_transmitting={getattr(self, '_is_transmitting', False)}")
+        logger.info("[TX] stop_transmit 调用")
 
-        # 使用锁保护 _is_transmitting 标志的检查和设置
+        # 快速路径检查
         with self._transmit_lock:
-            if not hasattr(self, '_is_transmitting') or not self._is_transmitting:
+            current_state = getattr(self, '_tx_state', self._TransmitState.IDLE)
+
+            if current_state == self._TransmitState.IDLE:
                 logger.info("[TX] 未在发射中，忽略停止调用")
                 return
-            self._is_transmitting = False
 
-        if hasattr(self, '_tx_stop_event'):
+            if current_state == self._TransmitState.STOPPING:
+                logger.info("[TX] 已在停止中，忽略重复调用")
+                return
+
+            # 状态转换: TRANSMITTING -> STOPPING
+            self._tx_state = self._TransmitState.STOPPING
+
+        # 发送停止信号 (在锁外，避免死锁)
+        if hasattr(self, '_tx_stop_event') and self._tx_stop_event:
             self._tx_stop_event.set()
 
         # 等待发射线程结束
-        if hasattr(self, '_tx_thread') and self._tx_thread:
-            logger.info(f"[TX] 等待发射线程结束...")
-            self._tx_thread.join(timeout=2)
+        if hasattr(self, '_tx_thread') and self._tx_thread and self._tx_thread.is_alive():
+            logger.info("[TX] 等待发射线程结束...")
+            self._tx_thread.join(timeout=2.0)
+
+            if self._tx_thread.is_alive():
+                logger.warning("[TX] 发射线程未在超时时间内结束")
+            else:
+                logger.debug("[TX] 发射线程已结束")
+
             self._tx_thread = None
+
+        # 发送 TX_AUDIO_STOP 包 (空payload)
+        try:
+            self.send_audio(b'', marker=False)
+            logger.info("[TX] 已发送 TX_AUDIO_STOP")
+        except Exception as e:
+            logger.warning(f"[TX] 发送停止包失败: {e}")
+
+        # 回到空闲状态 (必须在发送停止包后)
+        with self._transmit_lock:
+            self._tx_state = self._TransmitState.IDLE
+
+        logger.info("[TX] 🔴 停止发射")
 
         # 不停止录音器，保持录音状态以便下次快速启动
         # if hasattr(self, '_tx_recorder') and self._tx_recorder:
@@ -1948,10 +2012,19 @@ class AudioStreamListener:
         if hasattr(self, '_mixer') and self._mixer and self._mixer._tx_recorder:
             tx_recorder = self._mixer._tx_recorder
 
-        logger.debug(f"[TX_LOOP] 发射循环线程开始, _is_transmitting={self._is_transmitting}")
+        logger.debug(f"[TX_LOOP] 发射循环线程开始")
 
         iteration = 0
-        while not self._tx_stop_event.is_set() and self._is_transmitting:
+
+        # 使用状态检查而不是_is_transmitting标志
+        while not self._tx_stop_event.is_set():
+            # 检查状态 - 只在TRANSMITTING状态时继续
+            with self._transmit_lock:
+                current_state = getattr(self, '_tx_state', self._TransmitState.IDLE)
+                if current_state != self._TransmitState.TRANSMITTING:
+                    logger.debug(f"[TX_LOOP] 状态已改变: {current_state}，退出循环")
+                    break
+
             iteration += 1
             try:
                 # 1. 读取一帧 PCM (阻塞, 20ms)
@@ -2008,8 +2081,9 @@ class AudioStreamListener:
 
     @property
     def is_transmitting(self) -> bool:
-        """是否正在发射"""
-        return getattr(self, '_is_transmitting', False)
+        """是否正在发射 - 线程安全"""
+        with self._transmit_lock:
+            return getattr(self, '_tx_state', self._TransmitState.IDLE) == self._TransmitState.TRANSMITTING
 
     def start_ptt_keyboard(self) -> bool:
         """
