@@ -1,0 +1,294 @@
+{% extends "layout.html" %}
+{% set active_page = 'recordings' %}
+
+{% block title %}录音管理 - BSHT Bot{% endblock %}
+{% block page_title %}录音管理{% endblock %}
+
+{% block page_actions %}
+<button class="btn btn-sm btn-danger" id="batchDeleteBtn" style="display:none;" onclick="batchDelete()">批量删除</button>
+{% endblock %}
+
+{% block page_content %}
+<!-- 筛选栏 -->
+<div class="filter-bar">
+    <input type="text" id="searchKeyword" class="filter-input" placeholder="搜索识别文本...">
+    <input type="text" id="filterUser" class="filter-input filter-sm" placeholder="用户名">
+    <button class="btn btn-sm btn-primary" onclick="loadRecordings(1)">搜索</button>
+    <button class="btn btn-sm btn-ghost" onclick="clearFilters()">清除</button>
+</div>
+
+<!-- 录音列表 -->
+<div class="table-container">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th width="30"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
+                <th>时间</th>
+                <th>用户</th>
+                <th>频道</th>
+                <th>时长</th>
+                <th>识别结果</th>
+                <th width="100">操作</th>
+            </tr>
+        </thead>
+        <tbody id="recordingsBody">
+            <tr>
+                <td colspan="7" class="empty-state">加载中...</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<!-- 分页 -->
+<div class="pagination" id="pagination"></div>
+
+<!-- 音频播放器 (隐藏) -->
+<audio id="audioPlayer" style="display:none;"></audio>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const API = window.BSHTApp;
+    let currentPage = 1;
+    let currentPlaying = null;
+
+    // ========== Bot Socket.IO 连接 ==========
+    let botSocket = null;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 10;
+    let isInitializing = false;
+
+    function setupBotSocket() {
+        // 防止重复初始化
+        if (isInitializing) {
+            console.log('[Recordings] Socket 正在初始化，跳过重复调用');
+            return;
+        }
+
+        isInitializing = true;
+
+        // 断开旧连接（如果存在）
+        if (botSocket) {
+            try {
+                botSocket.disconnect();
+                botSocket = null;
+            } catch (e) {
+                console.error('[Recordings] 断开旧连接时出错:', e);
+            }
+        }
+
+        // 使用 Socket.IO 连接到 /bot 命名空间
+        botSocket = io('/bot', {
+            transports: ['websocket', 'polling'],
+            reconnection: false,
+            reconnectionAttempts: 3,
+            reconnectionDelay: 5000
+        });
+
+        botSocket.on('connect', () => {
+            console.log('[Recordings] Bot Socket.IO 已连接');
+            reconnectAttempts = 0;
+            isInitializing = false;
+        });
+
+        botSocket.on('bot:recording', (data) => {
+            console.log('[Recordings] 新录音推送:', data);
+            handleNewRecording(data);
+        });
+
+        botSocket.on('disconnect', (reason) => {
+            console.log('[Recordings] Bot Socket.IO 断开:', reason);
+            isInitializing = false;
+
+            if (reason === 'io server disconnect' || reason === 'transport close') {
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    reconnectAttempts++;
+                    const delay = Math.min(5000 * Math.pow(2, reconnectAttempts - 1), 60000);
+                    console.log(`[Recordings] 将在 ${delay/1000} 秒后尝试第 ${reconnectAttempts} 次重连...`);
+                    setTimeout(setupBotSocket, delay);
+                } else {
+                    console.error('[Recordings] 达到最大重连次数，停止重连');
+                }
+            }
+        });
+
+        botSocket.on('connect_error', (err) => {
+            console.error('[Recordings] Bot Socket.IO 连接错误:', err);
+            isInitializing = false;
+        });
+    }
+
+    function handleNewRecording(data) {
+        // 新录音产生时，刷新当前页
+        // 如果当前在第一页，直接刷新；如果在其他页，可以选择不刷新或提示用户
+        if (currentPage === 1) {
+            console.log('[Recordings] 自动刷新录音列表');
+            loadRecordings(1);
+        } else {
+            // 可选：显示提示"有新录音"
+            console.log('[Recordings] 有新录音，但不在第一页，暂不刷新');
+        }
+    }
+
+    // 启动 Bot Socket.IO
+    setupBotSocket();
+
+    // 页面卸载时断开连接
+    window.addEventListener('beforeunload', () => {
+        if (botSocket) {
+            botSocket.disconnect();
+        }
+    });
+
+    // 页面隐藏时断开连接，显示时重新连接
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            if (botSocket) {
+                botSocket.disconnect();
+                botSocket = null;
+            }
+        } else {
+            setupBotSocket();
+        }
+    });
+
+    // ========== 录音管理功能 ==========
+
+    async function loadRecordings(page) {
+        currentPage = page || 1;
+        const keyword = document.getElementById('searchKeyword').value;
+        const userName = document.getElementById('filterUser').value;
+
+        let url = `/api/recordings?page=${currentPage}&per_page=20`;
+        if (keyword) url += `&keyword=${encodeURIComponent(keyword)}`;
+        if (userName) url += `&user_name=${encodeURIComponent(userName)}`;
+
+        try {
+            const data = await API.get(url);
+            renderTable(data.items);
+            renderPagination(data.page, data.pages, data.total);
+        } catch (e) {
+            document.getElementById('recordingsBody').innerHTML =
+                '<tr><td colspan="7" class="empty-state">加载失败</td></tr>';
+        }
+    }
+
+    function renderTable(items) {
+        const tbody = document.getElementById('recordingsBody');
+        if (!items || items.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无录音记录</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = items.map(r => `
+        <tr data-id="${r.id}">
+            <td><input type="checkbox" class="row-select" value="${r.id}"></td>
+            <td>${r.timestamp ? r.timestamp.substring(0, 19) : '--'}</td>
+            <td>${r.user_name || '未知'}</td>
+            <td>${r.channel_id || '--'}</td>
+            <td>${r.duration ? r.duration.toFixed(1) + 's' : '--'}</td>
+            <td class="text-ellipsis" title="${r.asr_text || ''}">${r.asr_text || '<span class="text-muted">(未识别)</span>'}</td>
+            <td>
+                <div class="action-btns">
+                    <button class="btn-icon" title="播放" onclick="playAudio(${r.id}, this)">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    </button>
+                    <button class="btn-icon btn-icon-danger" title="删除" onclick="deleteOne(${r.id})">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+
+        // 监听选中变化
+        document.querySelectorAll('.row-select').forEach(cb => {
+            cb.addEventListener('change', updateBatchBtn);
+        });
+    }
+
+    function renderPagination(page, pages, total) {
+        const el = document.getElementById('pagination');
+        if (pages <= 1) { el.innerHTML = ''; return; }
+
+        let html = `<span class="page-info">共 ${total} 条</span>`;
+        if (page > 1) html += `<button class="btn btn-sm btn-ghost" onclick="loadRecordings(${page - 1})">上一页</button>`;
+
+        const start = Math.max(1, page - 2);
+        const end = Math.min(pages, page + 2);
+        for (let i = start; i <= end; i++) {
+            html += `<button class="btn btn-sm ${i === page ? 'btn-primary' : 'btn-ghost'}" onclick="loadRecordings(${i})">${i}</button>`;
+        }
+
+        if (page < pages) html += `<button class="btn btn-sm btn-ghost" onclick="loadRecordings(${page + 1})">下一页</button>`;
+        el.innerHTML = html;
+    }
+
+    function playAudio(id, btn) {
+        const player = document.getElementById('audioPlayer');
+        const token = localStorage.getItem('token');
+
+        if (currentPlaying === id) {
+            player.pause();
+            currentPlaying = null;
+            return;
+        }
+
+        player.src = `/api/recordings/${id}/audio`;
+        // 通过 fetch + blob 方式带 auth header
+        fetch(`/api/recordings/${id}/audio`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        })
+            .then(r => r.blob())
+            .then(blob => {
+                player.src = URL.createObjectURL(blob);
+                player.play();
+                currentPlaying = id;
+                player.onended = () => { currentPlaying = null; };
+            })
+            .catch(() => alert('播放失败'));
+    }
+
+    async function deleteOne(id) {
+        if (!confirm('确定删除此录音？')) return;
+        try {
+            await API.del(`/api/recordings/${id}`);
+            loadRecordings(currentPage);
+        } catch (e) {
+            alert('删除失败');
+        }
+    }
+
+    function toggleSelectAll() {
+        const checked = document.getElementById('selectAll').checked;
+        document.querySelectorAll('.row-select').forEach(cb => cb.checked = checked);
+        updateBatchBtn();
+    }
+
+    function updateBatchBtn() {
+        const selected = document.querySelectorAll('.row-select:checked').length;
+        document.getElementById('batchDeleteBtn').style.display = selected > 0 ? '' : 'none';
+    }
+
+    async function batchDelete() {
+        const ids = Array.from(document.querySelectorAll('.row-select:checked')).map(cb => parseInt(cb.value));
+        if (!ids.length) return;
+        if (!confirm(`确定删除 ${ids.length} 条录音？`)) return;
+
+        try {
+            await API.del('/api/recordings/batch', { ids });
+            loadRecordings(currentPage);
+        } catch (e) {
+            alert('批量删除失败');
+        }
+    }
+
+    function clearFilters() {
+        document.getElementById('searchKeyword').value = '';
+        document.getElementById('filterUser').value = '';
+        loadRecordings(1);
+    }
+
+    loadRecordings(1);
+</script>
+{% endblock %}
