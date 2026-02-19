@@ -227,8 +227,13 @@ class RecordingRecognizer:
                     rms_db=existing.rms_db or 0.0,
                     snr_db=existing.snr_db or 0.0
                 )
-                suggestion = ""
-                
+                # 创建假的 suggestion 对象
+                @dataclass
+                class DSPSuggestion:
+                    needed: bool = False
+                    level: str = "none"
+                suggestion = DSPSuggestion()
+
                 self._print_result(ai_result, quality, suggestion, user_name, recorder_type, 
                                   existing.asr_text or "", existing.recognize_duration or 0, 
                                   start_time, self.dsp_config.get("expert_model", "N/A"),

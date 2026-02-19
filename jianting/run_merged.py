@@ -119,7 +119,7 @@ class Runner:
                 logger.info("   ✅ 没有需要处理的历史文件")
 
             # 创建回调函数
-            recording_callback = create_recording_callback(recognizer, channel_id)
+            recording_callback = create_recording_callback(recognizer)
             logger.info("✅ 识别器已初始化")
 
         # 初始化 Bot
