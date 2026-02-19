@@ -6,6 +6,7 @@
 
 import os
 import re
+import sqlite3
 import logging
 from typing import Optional, List, Dict, Any
 from pathlib import Path

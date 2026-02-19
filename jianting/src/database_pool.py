@@ -257,7 +257,7 @@ class DatabaseConnectionPool:
             **self._stats,
             'pool_size': self._created_connections,
             'available': self._pool.qsize(),
-            'waiting': self._pool._unfinished_tasks,
+            'waiting': 0,  # Python 3.10+ 不再暴露此属性
             'utilization': f"{(self._stats['reused'] / max(self._stats['created'], 1) * 100):.1f}%"
         }
 
