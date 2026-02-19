@@ -541,6 +541,13 @@ class BotServer:
                     if status_result.success:
                         online_count = len(status_result.data.get('online_users', []))
                         logger.info(f"[状态监控] 频道在线: {online_count} 人")
+
+                        # 更新共享状态并广播
+                        if HAS_BOT_STATE:
+                            state = get_bot_state()
+                            state.update(online_count=online_count)
+                            broadcast_bot_status()
+                            broadcast_channel_update(self.target_channel_id, state.channel_name, online_count)
                     else:
                         logger.warning(f"[状态监控] 获取状态失败: {status_result.error}")
 

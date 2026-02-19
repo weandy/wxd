@@ -29,7 +29,7 @@ def broadcast_bot_status():
         return
     state = get_bot_state()
     if state:
-        socketio.emit('bot:status', state.to_dict(), broadcast=True)
+        socketio.emit('bot:status', state.to_dict())
 
 
 def broadcast_channel_update(channel_id: int, channel_name: str, online_count: int):
@@ -38,7 +38,7 @@ def broadcast_channel_update(channel_id: int, channel_name: str, online_count: i
         'channel_id': channel_id,
         'channel_name': channel_name,
         'online_count': online_count
-    }, broadcast=True)
+    })
 
 
 def broadcast_speaking(user_id: str, user_name: str, speaking: bool):
@@ -47,12 +47,12 @@ def broadcast_speaking(user_id: str, user_name: str, speaking: bool):
         'user_id': user_id,
         'user_name': user_name,
         'speaking': speaking
-    }, broadcast=True)
+    })
 
 
 def broadcast_recording(recording: dict):
     """广播新录音"""
-    socketio.emit('bot:recording', recording, broadcast=True)
+    socketio.emit('bot:recording', recording)
 
 
 # 已认证的 WebSocket 会话
