@@ -17,6 +17,18 @@ import time
 from typing import Optional, Callable
 from enum import Enum
 
+# 异步优化模块 - 用于CPU密集型任务的线程池处理
+try:
+    from async_optimization import get_thread_pool, run_in_pool
+except ImportError:
+    # 如果异步优化模块不存在，提供空实现
+    def run_in_pool(pool_type="cpu"):
+        def decorator(func):
+            return func
+        return decorator
+    def get_thread_pool():
+        return None
+
 # Opus 常量
 OPUS_OK = 0
 OPUS_APPLICATION_VOIP = 2048
@@ -54,7 +66,8 @@ class OpusDecoder:
                     lib = ctypes.CDLL(path)
                     print(f"[Opus] 已加载库: {path}")
                     break
-                except:
+                except OSError as e:
+                    # 库加载失败，尝试下一个路径
                     continue
         elif system == "Darwin":  # macOS
             for path in ["libopus.0.dylib", "libopus.dylib"]:
@@ -62,7 +75,7 @@ class OpusDecoder:
                     lib = ctypes.CDLL(path)
                     print(f"[Opus] 已加载库: {path}")
                     break
-                except:
+                except OSError as e:
                     continue
         else:  # Linux and others
             for path in ["libopus.so.0", "libopus.so"]:
@@ -70,7 +83,7 @@ class OpusDecoder:
                     lib = ctypes.CDLL(path)
                     print(f"[Opus] 已加载库: {path}")
                     break
-                except:
+                except OSError as e:
                     continue
 
         if lib is None:
@@ -400,14 +413,16 @@ class AudioRecorder:
             try:
                 self.stream.stop_stream()
                 self.stream.close()
-            except:
+            except (IOError, AttributeError) as e:
+                # 忽略资源已关闭或无效句柄的错误
                 pass
             self.stream = None
 
         if self.pyaudio:
             try:
                 self.pyaudio.terminate()
-            except:
+            except Exception as e:
+                # 忽略 PyAudio 终止错误
                 pass
             self.pyaudio = None
 
@@ -513,14 +528,16 @@ class AudioPlayer:
             try:
                 self.stream.stop_stream()
                 self.stream.close()
-            except:
+            except (IOError, AttributeError) as e:
+                # 忽略资源已关闭或无效句柄的错误
                 pass
             self.stream = None
 
         if self.pyaudio:
             try:
                 self.pyaudio.terminate()
-            except:
+            except Exception as e:
+                # 忽略 PyAudio 终止错误
                 pass
             self.pyaudio = None 
 
@@ -648,7 +665,8 @@ class PTTController:
         if self.on_state_change:
             try:
                 self.on_state_change(state)
-            except:
+            except Exception as e:
+                # 忽略回调执行错误
                 pass
     
     def get_stats(self):
@@ -742,7 +760,11 @@ class PTTControllerKeyboard:
         try:
             import keyboard
             keyboard.unhook_all()
-        except:
+        except ImportError:
+            # keyboard 模块未安装
+            pass
+        except Exception as e:
+            # 忽略键盘清理错误
             pass
         
         self.ptt_controller.cleanup()

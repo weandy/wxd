@@ -35,6 +35,11 @@ class PerformanceMetrics:
     min_time: float = float('inf')
     max_time: float = 0.0
     errors: int = 0
+    _samples: list = None  # 存储原始样本用于百分位计算
+
+    def __post_init__(self):
+        if self._samples is None:
+            self._samples = []
 
     @property
     def avg_time(self) -> float:
@@ -44,13 +49,42 @@ class PerformanceMetrics:
     def error_rate(self) -> float:
         return self.errors / self.count if self.count > 0 else 0
 
+    def get_percentile(self, percentile: float) -> float:
+        """获取百分位数 (0-100)"""
+        if not self._samples:
+            return 0.0
+        sorted_samples = sorted(self._samples)
+        index = int(len(sorted_samples) * percentile / 100)
+        index = min(index, len(sorted_samples) - 1)
+        return sorted_samples[index]
+
+    @property
+    def p50(self) -> float:
+        """P50 (中位数)"""
+        return self.get_percentile(50)
+
+    @property
+    def p95(self) -> float:
+        """P95"""
+        return self.get_percentile(95)
+
+    @property
+    def p99(self) -> float:
+        """P99"""
+        return self.get_percentile(99)
+
 
 class MetricsCollector:
     """轻量级性能指标收集器"""
 
-    def __init__(self):
+    def __init__(self, max_samples: int = 1000):
+        """
+        Args:
+            max_samples: 每个操作保留的最大样本数 (用于百分位计算)
+        """
         self._metrics: Dict[str, PerformanceMetrics] = {}
         self._lock = threading.Lock()
+        self._max_samples = max_samples  # 限制内存使用
 
     def record(self, operation: str, duration: float, error: bool = False):
         """记录指标"""
@@ -66,6 +100,10 @@ class MetricsCollector:
             if error:
                 m.errors += 1
 
+            # 保留样本用于百分位计算
+            if len(m._samples) < self._max_samples:
+                m._samples.append(duration)
+
     def get_metrics(self, operation: str) -> Optional[PerformanceMetrics]:
         """获取指标"""
         with self._lock:
@@ -76,8 +114,12 @@ class MetricsCollector:
         with self._lock:
             return list(self._metrics.values())
 
-    def print_summary(self):
-        """打印摘要"""
+    def print_summary(self, show_percentiles: bool = True):
+        """打印摘要
+
+        Args:
+            show_percentiles: 是否显示P50/P95/P99
+        """
         print("\n" + "=" * 60)
         print("📊 性能指标摘要")
         print("=" * 60)
@@ -88,7 +130,34 @@ class MetricsCollector:
             print(f"  最小: {m.min_time*1000:.2f}ms")
             print(f"  最大: {m.max_time*1000:.2f}ms")
             print(f"  错误: {m.errors} ({m.error_rate*100:.1f}%)")
+            if show_percentiles and m.count > 0:
+                print(f"  P50:  {m.p50*1000:.2f}ms")
+                print(f"  P95:  {m.p95*1000:.2f}ms")
+                print(f"  P99:  {m.p99*1000:.2f}ms")
         print("\n")
+
+    def check_alerts(self, thresholds: Dict[str, float]) -> List[Dict]:
+        """
+        检查是否触发告警
+
+        Args:
+            thresholds: 阈值字典，格式: {"operation": threshold_ms}
+
+        Returns:
+            告警列表
+        """
+        alerts = []
+        for m in self.get_all_metrics():
+            if m.operation in thresholds:
+                threshold_sec = thresholds[m.operation] / 1000  # 转换为秒
+                if m.p95 > threshold_sec:
+                    alerts.append({
+                        "operation": m.operation,
+                        "p95_ms": m.p95 * 1000,
+                        "threshold_ms": thresholds[m.operation],
+                        "severity": "critical" if m.p99 > threshold_sec else "warning"
+                    })
+        return alerts
 
 
 # 全局指标收集器

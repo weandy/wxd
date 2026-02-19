@@ -882,15 +882,53 @@ ASR识别结果: "{asr_text}"
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 512
             }
-            
+
             response = requests.post(url, json=payload, headers=headers, timeout=120)
-            
+
             if response.status_code == 200:
                 result = response.json()
                 content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
                 return True, content
             else:
                 return False, f"API错误: {response.status_code}"
+        except Exception as e:
+            return False, str(e)
+
+    async def chat_async(self, prompt: str, model: str = None) -> Tuple[bool, str]:
+        """
+        异步版本的 chat 方法 - 使用 httpx
+
+        Args:
+            prompt: 提示词
+            model: 模型名称，默认使用 expert_model
+
+        Returns:
+            (成功标志, 结果内容)
+        """
+        try:
+            import httpx
+
+            model = model or self.expert_model
+            url = f"{self.base_url}/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 512
+            }
+
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(url, json=payload, headers=headers)
+
+                if response.status_code == 200:
+                    result = response.json()
+                    content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    return True, content
+                else:
+                    return False, f"API错误: {response.status_code}"
         except Exception as e:
             return False, str(e)
 

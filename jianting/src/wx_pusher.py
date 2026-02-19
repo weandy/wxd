@@ -112,6 +112,57 @@ class WxPusher:
         
         return sent_users
 
+    async def send_async(self, title: str, content: str, userid: Optional[str] = None) -> bool:
+        """
+        异步发送推送消息
+
+        Args:
+            title: 消息标题
+            content: 消息内容
+            userid: 指定用户ID，为None则推送给所有目标
+
+        Returns:
+            是否发送成功
+        """
+        import httpx
+
+        # 构建请求参数
+        params = {
+            "title": title,
+            "content": content,
+        }
+
+        if userid:
+            params["userid"] = userid
+
+        # 添加 token
+        if self.token:
+            params["token"] = self.token
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(self.url, json=params)
+                result = response.json()
+
+                success = (
+                    result.get("errcode") == 0 or
+                    result.get("code") == 0 or
+                    "ok" in str(result.get("msg", "")).lower() or
+                    "success" in str(result.get("msg", "")).lower() or
+                    result.get("success") == True
+                )
+
+                if success:
+                    logger.info(f"[WxPusher] 异步推送成功: {title}")
+                    return True
+                else:
+                    logger.warning(f"[WxPusher] 异步推送失败: {result}")
+                    return False
+
+        except Exception as e:
+            logger.error(f"[WxPusher] 异步推送异常: {e}")
+            return False
+
 
 def load_pusher(env_path: str = ".env") -> Optional[WxPusher]:
     """从环境变量加载推送配置"""

@@ -1,6 +1,12 @@
 """
 数据库模块 - SQLite存储音频识别结果
 高内聚低耦合设计
+
+异步支持:
+    要使用异步数据库操作，可以导入 async_database_wrapper:
+    from async_database_wrapper import get_async_database
+    async_db = get_async_database(get_database())
+    await async_db.add_recording(recording)
 """
 import sqlite3
 import json

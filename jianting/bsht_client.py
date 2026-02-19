@@ -217,7 +217,8 @@ class ProtobufCodec:
                     decoded_str = value.decode('utf-8')
                     if all(c.isprintable() or c in '\n\r\t' for c in decoded_str):
                         value = decoded_str
-                except:
+                except (UnicodeDecodeError, AttributeError):
+                    # 解码失败，保留原始字节
                     pass
                 # repeated 字段: 收集到列表
                 if field_num in result:
@@ -275,7 +276,8 @@ class GrpcClient:
                     if ':' in line:
                         key, value = line.split(':', 1)
                         trailers[key.strip()] = value.strip()
-            except:
+            except (UnicodeDecodeError, AttributeError) as e:
+                # 忽略 trailer 解析错误
                 pass
         
         return message, trailers
@@ -1487,7 +1489,8 @@ class AudioStreamListener:
         if self._socket:
             try:
                 self._socket.close()
-            except:
+            except (OSError, AttributeError) as e:
+                # 忽略 socket 关闭错误
                 pass
             self._socket = None
         
@@ -2186,7 +2189,11 @@ class AudioStreamListener:
         try:
             import keyboard
             keyboard.unhook_all()
-        except:
+        except ImportError:
+            # keyboard 模块未安装
+            pass
+        except Exception as e:
+            # 忽略键盘清理错误
             pass
 
         if self.is_transmitting:
