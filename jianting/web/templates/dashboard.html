@@ -105,6 +105,10 @@
 
         botSocket.on('connect', () => {
             console.log('Bot Socket.IO 已连接');
+            // 连接成功后立即获取 Bot 状态
+            API.get('/api/bot/status').then(data => {
+                handleBotStatus(data);
+            }).catch(err => console.error('获取状态失败:', err));
         });
 
         botSocket.on('bot:connected', (data) => {
