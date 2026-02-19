@@ -204,7 +204,7 @@ class Database:
         # 数据库迁移：添加invalid_reason字段（如果不存在）
         try:
             cursor.execute("ALTER TABLE recordings ADD COLUMN invalid_reason TEXT DEFAULT ''")
-        except:
+        except sqlite3.OperationalError:
             pass  # 字段可能已存在
         
         conn.commit()

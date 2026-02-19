@@ -47,7 +47,7 @@ class Runner:
         logger.info("=" * 50)
         logger.info("🌐 启动 Web 服务...")
         logger.info(f"   访问地址: http://localhost:{port}")
-        logger.info("   WebSocket: ws://localhost:{port}/bot")
+        logger.info(f"   WebSocket: ws://localhost:{port}/bot")
         logger.info("=" * 50)
 
         app = create_app()
