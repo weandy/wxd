@@ -577,14 +577,19 @@ class RecordingRecognizer:
 
 def create_recording_callback(recognizer):
     """创建录音完成回调函数"""
-    def callback(filepath: str, duration: float, user_id: str, 
-                user_name: str, channel_id: int, recorder_type: str):
+    def callback(filepath: str, duration: float, start_time: str,
+                user_id: str, user_name: str,
+                channel_id: int, recorder_type: str,
+                lost_frames: int = 0, loss_rate: float = 0.0):
         recognizer.on_recording_complete(
             filepath=filepath,
             duration=duration,
+            start_time=start_time,
             user_id=user_id,
             user_name=user_name,
             channel_id=channel_id,
-            recorder_type=recorder_type
+            recorder_type=recorder_type,
+            lost_frames=lost_frames,
+            loss_rate=loss_rate
         )
     return callback
