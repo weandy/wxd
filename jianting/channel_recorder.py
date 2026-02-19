@@ -260,7 +260,9 @@ class ChannelRecorder:
                     user_id=rec.user_id,
                     user_name=rec.name,
                     channel_id=self._channel_id,
-                    recorder_type=self._recorder_type
+                    recorder_type=self._recorder_type,
+                    lost_frames=lost,
+                    loss_rate=loss_pct
                 )
             except Exception as e:
                 self._logger.error(f"录音完成回调失败: {e}")

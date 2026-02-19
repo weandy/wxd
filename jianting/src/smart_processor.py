@@ -354,10 +354,14 @@ class AIClient:
     """AI识别客户端"""
     
     def __init__(self, api_key: str, base_url: str = "https://api.siliconflow.cn/v1", 
-                 expert_model: str = "Qwen/Qwen2.5-7B-Instruct"):
+                 expert_model: str = "glm-4-flash",
+                 zhipu_key: str = "", zhipu_base_url: str = "https://open.bigmodel.cn/api/paas/v4"):
         self.api_key = api_key
         self.base_url = base_url
         self.expert_model = expert_model
+        # 智谱API配置
+        self.zhipu_key = zhipu_key
+        self.zhipu_base_url = zhipu_base_url
         self.prompts = self._load_prompts()
         self.prompt_md = self._load_prompt_md()  # 加载md格式的prompt
     
@@ -379,6 +383,143 @@ class AIClient:
             except Exception as e:
                 print(f"[AIClient] 加载Prompt MD失败: {e}")
         return ""
+    
+    def _apply_correction_rules(self, text: str) -> str:
+        """应用本地纠错规则"""
+        if not text:
+            return text
+        
+        import re
+        
+        # 词语纠错规则（按出现频率排序）
+        corrections = {
+            # 高频错误
+            '柴友': '台友',
+            '财友': '台友',
+            '菜油': '台友',
+            '超收': '抄收',
+            '抄手': '抄收',
+            '有他': '有台',
+            '抽书': '抄收',
+            # 常见误识别
+            '抄收': '抄收',
+            '台有': '台友',
+            '台优': '台友',
+            '台由': '台友',
+            '台柚': '台友',
+            '太友': '台友',
+            '套友': '台友',
+            # 数字相关
+            '幺': '1',
+            '腰': '1',
+            '两': '2',
+            '二': '2',
+            '三': '3',
+            '山': '3',
+            '思': '4',
+            '四': '4',
+            '无': '5',
+            '五': '5',
+            '陆': '6',
+            '量': '6',
+            '大': '6',
+            '拐': '7',
+            '起': '7',
+            '七': '7',
+            '九': '9',
+            '狗': '9',
+            '动': '0',
+            '洞': '0',
+            '栋': '0',
+            # 字母解释法相关
+            'sQ': 'CQ',
+            'sQCQ': 'CQ',
+            'cQ': 'CQ',
+            'CQ CQ CQ CQ': 'CQ CQ CQ',
+            # 常见语音拼写
+            'kilolo': 'Kilo',
+            'Florid': 'Florida',
+            'Pap': 'Papa',
+            'Brav': 'Bravo',
+            'Delt': 'Delta',
+            'Sierra': 'Sierra',
+            'Romeo': 'Romeo',
+            'Tango': 'Tango',
+        }
+        
+        result = text
+        
+        # 应用词语纠错
+        for wrong, correct in corrections.items():
+            result = result.replace(wrong, correct)
+        
+        # 清理呼号后面的多余字符 - 只保留5-6位呼号
+        # 如 BD6KFPbdtas -> BD6KFP
+        def clean_callsign(m):
+            call = m.group(0)
+            # 保留前5-6位
+            return call[:6]
+        
+        result = re.sub(r'[A-Z]{1,2}\d{1,2}[A-Z0-9]{4,10}', clean_callsign, result, flags=re.IGNORECASE)
+        
+        # 清理重复的单词（如 kilolo → Kilo）
+        result = re.sub(r'(Kilo)\1+', r'\1', result)
+        
+        return result
+    
+    def _extract_callsign(self, text: str) -> str:
+        """提取呼号 - 5-6位字母数字混合"""
+        if not text:
+            return ""
+        
+        import re
+        
+        # 匹配5-6位的字母数字混合（以字母开头，后面包含数字）
+        # 不使用\b，允许在中文环境中匹配
+        pattern = r'([A-Z]{1,2}\d{1,2}[A-Z0-9]{1,4})'
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        
+        if matches:
+            # 转换为大写，取第一个匹配
+            callsign = matches[0].upper()
+            # 限制长度为6位
+            if len(callsign) > 6:
+                callsign = callsign[:6]
+            return callsign
+        
+        return ""
+    
+    def _detect_signal_type(self, text: str) -> str:
+        """判断信号类型"""
+        import re
+        
+        if not text:
+            return "UNKNOWN"
+        
+        text_upper = text.upper()
+        
+        # CQ呼叫
+        if 'CQ' in text_upper:
+            return "CQ"
+        
+        # 73祝福
+        if '73' in text_upper:
+            return "CQ73"
+        
+        # QRZ询问
+        if 'QRZ' in text_upper:
+            return "QRZ"
+        
+        # 信号报告 (59, 57等)
+        if re.search(r'[34556789]\s*[123456789]', text_upper):
+            return "QSO"
+        
+        # 双向对话关键词
+        qso_keywords = ['抄收', '收到', '信号', '报告', '59', '57', '73', '谢谢', '再会']
+        if any(kw in text_upper for kw in qso_keywords):
+            return "QSO"
+        
+        return "UNKNOWN"
     
     @retry_on_error(max_attempts=3, backoff=2.0)
     def call_asr(self, audio_path: str) -> Tuple[bool, str]:
@@ -455,6 +596,36 @@ class AIClient:
                 return False, f"API错误: {response.status_code} - {response.text[:100]}"
         except Exception as e:
             return False, f"ASR错误: {str(e)}"
+    
+    @retry_on_error(max_attempts=3, backoff=2.0)
+    def call_tele_asr(self, audio_path: str) -> Tuple[bool, str]:
+        """调用TeleSpeechASR - 并行ASR识别"""
+        try:
+            import requests
+            
+            # TeleSpeechASR API 端点
+            url = f"{self.base_url}/audio/transcriptions"
+            headers = {"Authorization": f"Bearer {self.api_key}"}
+            
+            with open(audio_path, 'rb') as f:
+                files = {
+                    'file': ('audio.wav', f, 'audio/wav')
+                }
+                data = {
+                    'model': 'TeleAI/TeleSpeechASR',
+                    'language': 'zh',
+                    'response_format': 'json'
+                }
+                response = requests.post(url, files=files, data=data, headers=headers, timeout=60)
+            
+            if response.status_code == 200:
+                result = response.json()
+                text = result.get("text", "") or result.get("data", {}).get("text", "")
+                return True, text
+            else:
+                return False, f"TeleASR API错误: {response.status_code} - {response.text[:100]}"
+        except Exception as e:
+            return False, f"TeleASR错误: {str(e)}"
     @retry_on_error(max_attempts=3, backoff=2.0)
     def call_expert_analysis(self, audio_path: str, asr_text: str) -> Tuple[bool, str]:
         """调用专家分析 - 优先使用prompts.md"""
@@ -507,7 +678,7 @@ ASR识别结果: "{asr_text}"
             
             # 使用配置的专家模型
             payload = {
-                "model": self.expert_model,
+                "model": model_name,
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 512
             }
@@ -568,10 +739,11 @@ ASR识别结果: "{asr_text}"
             return False, str(e)
     
     def call_final_analysis(self, audio_path: str, sensevoice_result: str, expert_result: str) -> Tuple[bool, str]:
-        """最终综合分析 - 综合SenseVoice和专家模型的识别结果"""
+        """最终综合分析 - 综合SenseVoice和TeleASR的识别结果"""
         try:
             import requests
             
+            # 始终使用SiliconFlow API
             url = f"{self.base_url}/chat/completions"
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
@@ -581,27 +753,93 @@ ASR识别结果: "{asr_text}"
             # 优先使用prompts.md的完整内容
             prompt_md = getattr(self, 'prompt_md', '')
             
-            # 构建综合分析的prompt - 强制基于实际识别结果，禁止猜测
+            # 构建prompt - 直接使用prompts.md的规则
+            if prompt_md:
+                # prompts.md已经包含了完整的规则，直接使用
+                prompt = f"""{prompt_md}
+
+---
+
+## 待处理的语音识别结果:
+"{sensevoice_result}"
+
+请根据上述规则对这个语音识别结果进行转文字整理，并输出JSON格式的结果。"""
+            else:
+                prompt = f"""你是一个业余无线电通联语音转文字整理助手。
+
+## 待处理内容:
+"{sensevoice_result}"
+
+## 你的任务:
+1. 规范化呼号: BD6开→BD6KFP, 数字0和字母O纠错
+2. 词语纠错: 糖友/柴友→台友, 抄手→抄收
+3. 数字映射: 洞→0, 幺→1, 拐→7
+4. 提取呼号和信号类型 (CQ/QSO/CQ73/UNKNOWN)
+5. 完整保留原始内容
+
+## 输出JSON:
+{{"signal_type":"CQ/QSO/CQ73/UNKNOWN","content_normalized":"完整保留的规范化文本","user_id":"呼号","signal_quality":"1-9","confidence":0.0-1.0}}"""
+            
+            def call_model(model_name):
+                """调用单个模型"""
+                payload = {
+                    "model": model_name,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 512
+                }
+                try:
+                    response = requests.post(url, json=payload, headers=headers, timeout=120)
+                    if response.status_code == 200:
+                        result = response.json()
+                        content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                        return model_name, True, content
+                    else:
+                        return model_name, False, f"API错误: {response.status_code}"
+                except Exception as e:
+                    return model_name, False, str(e)
+            
+            # 只运行一个模型
+            model_name = "THUDM/glm-4-9b-chat"
+            
+            payload = {
+                "model": model_name,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 512
+            }
+            
+            try:
+                response = requests.post(url, json=payload, headers=headers, timeout=120)
+                if response.status_code == 200:
+                    result = response.json()
+                    content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    return True, content
+                else:
+                    return False, f"API错误: {response.status_code}"
+            except Exception as e:
+                return False, str(e)
+            
+            # 构建综合分析的prompt - 综合两个ASR结果进行文本分析
             if prompt_md:
                 # 使用prompts.md的完整规则
                 prompt = f"""{prompt_md}
 
 ---
 
-## 原始识别结果 (必须严格基于这些结果):
+## 两个ASR模型的识别结果:
 - SenseVoice: "{sensevoice_result}"
-- Qwen: "{expert_result}"
+- TeleASR: "{expert_result}"
 
-## 处理规则:
-1. 如果两个结果相同，直接使用
-2. 如果不同，选择更通顺合理的
-3. **禁止猜测**: 不允许生成原结果中没有的内容!
-4. 无意义内容(测试/啊啊)返回空
+## 任务要求 (必须执行):
+1. **对比分析**: 比较两个ASR结果，选择更准确的版本，或者结合两者的优点
+2. **应用纠错规则**: 
+   - 字母解释法: Alpha→A, Bravo→B, Charlie→C...
+   - 词语纠错: 柴友→台友, 抄手→抄收, 那个→那个...
+   - 数字映射: 洞→0, 幺→1, 两→2, 3→三...
+3. **判断信号类型**: CQ(普遍呼叫), QSO(双向通联), CQ73(结束祝福), QRZ(呼叫对方), NOISE(噪音), UNKNOWN(未知)
+4. **提取呼号**: 找出HAM呼号
 
 ## 输出JSON:
-{{"signal_type":"CQ/QSO/CQ73/QRZ/NOISE/UNKNOWN","content_normalized":"修正后的文本","user_id":"呼号","signal_quality":"1-9","confidence":0.0-1.0}}
-
-只返回JSON。"""
+{{"signal_type":"CQ/QSO/CQ73/QRZ/NOISE/UNKNOWN","content_normalized":"经过对比分析和纠错后的规范化文本","user_id":"提取的呼号","signal_quality":"1-9","confidence":0.0-1.0}}"""
             else:
                 # 回退到prompts.json
                 expert_config = self.prompts.get("expert_analysis", {})
@@ -617,9 +855,18 @@ ASR识别结果: "{asr_text}"
                 
                 prompt = f"""你是一个严格的业余无线电通信分析助手。
 
-## 原始识别结果:
+## 两个ASR模型的识别结果:
 - SenseVoice: "{sensevoice_result}"  
-- Qwen: "{expert_result}"
+- TeleASR: "{expert_result}"
+
+## 任务要求 (必须执行):
+1. 对比两个ASR结果，选择更准确的版本或结合两者优点
+2. 应用纠错规则:
+   - 字母解释法: Alpha→A, Bravo→B, Charlie→C...
+   - 词语纠错: 柴友→台友, 抄手→抄收, 那个→那个...
+   - 数字映射: 洞→0, 幺→1, 两→2...
+3. 判断信号类型: CQ/QSO/CQ73/QRZ/NOISE/UNKNOWN
+4. 提取呼号
 
 ## 纠正规则:
 {corrections_text}
@@ -627,15 +874,8 @@ ASR识别结果: "{asr_text}"
 ## 数字映射:
 {numbers_text}
 
-## 规则:
-1. 如果两个结果相同，直接使用
-2. 禁止猜测，不生成原结果中没有的内容
-3. 无意义内容返回空
-
 ## 输出格式:
-{json.dumps(output_format, ensure_ascii=False)}
-
-只返回JSON。"""
+{json.dumps(output_format, ensure_ascii=False)}"""
             
             payload = {
                 "model": self.expert_model,
@@ -670,8 +910,12 @@ class SmartAudioProcessor:
         )
         
         # 专家模型配置
-        expert_model = self.dsp_config.get("expert_model", "Qwen/Qwen2.5-7B-Instruct")
-        self.ai = AIClient(api_key, expert_model=expert_model)
+        expert_model = self.dsp_config.get("expert_model", "glm-4-flash")
+        # 智谱API配置
+        zhipu_key = self.dsp_config.get("zhipu_key", "")
+        zhipu_base_url = self.dsp_config.get("zhipu_base_url", "https://open.bigmodel.cn/api/paas/v4")
+        self.ai = AIClient(api_key, expert_model=expert_model, 
+                          zhipu_key=zhipu_key, zhipu_base_url=zhipu_base_url)
         
         # SNR阈值
         self.snr_threshold_high = self.dsp_config.get("snr_threshold_high", 20.0)
@@ -728,72 +972,47 @@ class SmartAudioProcessor:
             # 5. 选择要使用的音频
             audio_to_use = temp_processed if use_processed else temp_original
             
-            # 6. 三级处理: SenseVoice + Qwen专家模型 + 综合分析
+            # 6. 使用SenseVoice进行语音识别，然后用GLM进行语义分析和修正
             
-            # 6.1 SenseVoice ASR识别
-            logger.info("[识别] 调用 SenseVoice...")
-            success, sensevoice_text = self.ai.call_asr(audio_to_use)
-            if not success:
+            # 6.1 调用SenseVoice识别
+            logger.info("[识别] 调用 SenseVoice 语音识别...")
+            
+            sensevoice_success, sensevoice_text = self.ai.call_asr(audio_to_use)
+            if sensevoice_success and sensevoice_text:
+                logger.info(f"[识别] SenseVoice结果: {sensevoice_text[:100]}...")
+            else:
+                logger.warning(f"[识别] SenseVoice失败: {sensevoice_text}")
                 return (
-                    AIResult(success=False, signal_type="UNKNOWN", content=sensevoice_text,
+                    AIResult(success=False, signal_type="UNKNOWN", content="",
                             content_normalized="", user_id="", signal_quality="",
-                            confidence=0.0, error=sensevoice_text),
+                            confidence=0.0, error="语音识别失败"),
                     quality,
                     suggestion
                 )
-            logger.info(f"[识别] SenseVoice结果: {sensevoice_text[:50]}...")
             
-            # 6.2 最终综合分析 (使用Qwen对SenseVoice结果进行文本分析和纠错)
-            # 不再调用Qwen做语音识别（SiliconFlow的Qwen不支持音频URL输入）
-            # 直接使用SenseVoice的结果进行专家分析
-            expert_text = sensevoice_text
+            # 6.2 本地规则纠错（不使用GLM）
+            logger.info("[识别] 应用本地规则纠错...")
             
-            logger.info("[识别] 调用 final_analysis 进行文本分析...")
+            corrected_text = self.ai._apply_correction_rules(sensevoice_text)
             
-            # 6.3 最终综合分析 (三级处理)
-            # 无论两个识别结果是否相同，都需要专家分析确认信号类型、提取呼号等
-            success, analysis = self.ai.call_final_analysis(audio_to_use, sensevoice_text, expert_text)
-            if not success:
-                analysis = ""
+            # 提取呼号
+            user_id = self.ai._extract_callsign(corrected_text)
             
-            # 记录原始识别结果
-            asr_text = sensevoice_text
-            expert_asr_text = expert_text
+            # 判断信号类型
+            signal_type = self.ai._detect_signal_type(corrected_text)
             
+            # 使用纠错后的文本
             ai_result = AIResult(
                 success=True,
-                signal_type="UNKNOWN",
-                content=asr_text,
-                content_normalized=asr_text,
-                user_id="",
+                signal_type=signal_type,
+                content=sensevoice_text,
+                content_normalized=corrected_text,
+                user_id=user_id,
                 signal_quality="5",
                 confidence=0.5,
                 sensevoice_content=sensevoice_text,
-                expert_content=expert_text
+                expert_content=""
             )
-            
-            if analysis:
-                try:
-                    # 解析JSON
-                    analysis_json = analysis.replace("```json", "").replace("```", "").strip()
-                    data = json.loads(analysis_json)
-                    
-                    # 只有当原始ASR有内容时才接受识别结果
-                    normalized = data.get("content_normalized", "")
-                    if normalized and normalized.strip():
-                        ai_result.signal_type = data.get("signal_type", "UNKNOWN")
-                        ai_result.content_normalized = normalized
-                        ai_result.user_id = data.get("user_id", "")
-                        ai_result.signal_quality = data.get("signal_quality", "5")
-                        ai_result.confidence = data.get("confidence", 0.5)
-                    else:
-                        # ASR没有识别到内容，标记失败
-                        ai_result.success = False
-                        ai_result.error = "ASR未识别到内容"
-                except:
-                    # JSON解析失败，标记失败
-                    ai_result.success = False
-                    ai_result.error = "响应解析失败"
             
             # 8. 分析处理后质量
             if use_processed:

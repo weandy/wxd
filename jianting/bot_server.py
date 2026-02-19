@@ -586,7 +586,8 @@ def create_recording_callback(recognizer, channel_id):
     """创建录音完成回调函数"""
     def callback(filepath: str, duration: float, start_time: str, 
                  user_id: str, user_name: str,
-                 channel_id: int = 0, recorder_type: str = "RX"):
+                 channel_id: int = 0, recorder_type: str = "RX",
+                 lost_frames: int = 0, loss_rate: float = 0.0):
         recognizer.on_recording_complete(
             filepath=filepath,
             duration=duration,
@@ -594,7 +595,9 @@ def create_recording_callback(recognizer, channel_id):
             user_id=user_id,
             user_name=user_name,
             channel_id=channel_id,
-            recorder_type=recorder_type
+            recorder_type=recorder_type,
+            lost_frames=lost_frames,
+            loss_rate=loss_rate
         )
     return callback
 
@@ -644,17 +647,28 @@ if __name__ == "__main__":
                     "agc_mode": config.dsp.agc_mode,
                     "snr_threshold_high": config.dsp.snr_threshold_high,
                     "snr_threshold_low": config.dsp.snr_threshold_low,
-                    "expert_model": config.api.expert_model if config.api.expert_model_enabled else "Qwen/Qwen2.5-7B-Instruct"
+                    "expert_model": config.api.expert_model if config.api.expert_model_enabled else "glm-4-flash",
+                    "zhipu_key": config.api.zhipu_key,
+                    "zhipu_base_url": config.api.zhipu_base_url
                 }
             )
             
-            if config.api.expert_model_enabled:
-                print(f"🤖 专家模型已启用: {config.api.expert_model}")
+            # 伪实时识别已启用
+            print("🎯 伪实时识别已启用")
             
             # 设置数据库
             from src.database import get_database
             db = get_database(config.database.path)
             recognizer.set_database(db)
+            
+            # 初始化微信推送器
+            from src.wx_pusher import load_pusher
+            pusher = load_pusher()
+            if pusher:
+                recognizer.set_pusher(pusher)
+                print(f"📲 微信推送已启用 ({len(pusher.targets)} 个目标)")
+            else:
+                print("📲 微信推送未配置")
             
             # 启动时扫描未入库的录音文件
             print("🔍 扫描历史录音文件...")

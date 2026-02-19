@@ -1,3 +1,4 @@
+# Python
 __pycache__/
 *.pyc
 *.pyo
@@ -6,10 +7,45 @@ __pycache__/
 env/
 venv/
 .venv/
+*.egg-info/
+dist/
+build/
+
+# 项目特定
 recordings/
 audio_*.raw
 *.log
+credentials.json
+.env
+data/
+logs/
+
+# IDE
 .vscode/
 .idea/
-.git/
-credentials.json
+*.swp
+*.swo
+
+# 测试
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 临时文件
+*.tmp
+*.bak
+debug_audio.bin
+
+# Node.js (相关项目)
+../ham-radio-report/node_modules/
+../ham-radio-report/server/uploads/
+../ham-radio-report/server/reports.db
+
+# 压缩包
+*.zip
+*.tar
+*.gz
+
+# Gradle
+.gradle/
+build/

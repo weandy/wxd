@@ -42,19 +42,30 @@ class OpusDecoder:
         if cls._shared_lib is not None:
             return cls._shared_lib
 
+        import platform
+        system = platform.system()
+        
         lib = None
-        if sys.platform != 'win32':
-            for path in ["libopus.so.0", "libopus.so"]:
+        if system == "Windows":
+            dll_path = os.path.join(os.path.dirname(__file__), "opus.dll")
+            search_paths = [dll_path, "libopus-0.dll", "opus.dll"]
+            for path in search_paths:
                 try:
                     lib = ctypes.CDLL(path)
                     print(f"[Opus] 已加载库: {path}")
                     break
                 except:
                     continue
-        else:
-            dll_path = os.path.join(os.path.dirname(__file__), "opus.dll")
-            search_paths = [dll_path, "libopus-0.dll", "opus.dll"]
-            for path in search_paths:
+        elif system == "Darwin":  # macOS
+            for path in ["libopus.0.dylib", "libopus.dylib"]:
+                try:
+                    lib = ctypes.CDLL(path)
+                    print(f"[Opus] 已加载库: {path}")
+                    break
+                except:
+                    continue
+        else:  # Linux and others
+            for path in ["libopus.so.0", "libopus.so"]:
                 try:
                     lib = ctypes.CDLL(path)
                     print(f"[Opus] 已加载库: {path}")
@@ -169,17 +180,19 @@ class OpusEncoder:
 
     def _load_library(self):
         """加载 Opus 库"""
-        library_paths = [
-            os.path.join(os.path.dirname(__file__), "opus.dll"),
-            "opus.dll",
-            "libopus-0.dll",
-            "libopus.so.0",
-            "libopus.so"
-        ]
+        import platform
+        system = platform.system()
+        
+        if system == "Windows":
+            dll_path = os.path.join(os.path.dirname(__file__), "opus.dll")
+            search_paths = [dll_path, "libopus-0.dll", "opus.dll"]
+        elif system == "Darwin":  # macOS
+            search_paths = ["libopus.0.dylib", "libopus.dylib"]
+        else:  # Linux
+            search_paths = ["libopus.so.0", "libopus.so"]
 
-        for lib_path in library_paths:
+        for lib_path in search_paths:
             try:
-                # Try loading directly (CDLL searches system paths)
                 self._lib = ctypes.CDLL(lib_path)
                 print(f"[Opus] 已加载库: {lib_path}")
                 break

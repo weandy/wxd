@@ -36,6 +36,7 @@ class RecordingRecognizer:
         self.dsp_config = dsp_config or {}
         self._processor = None
         self._db = None
+        self._pusher = None  # 微信推送器
         self._running = False
         self._lock = threading.Lock()
         self._pending_queue = []  # 待识别队列
@@ -51,6 +52,10 @@ class RecordingRecognizer:
         """设置数据库实例"""
         self._db = db
     
+    def set_pusher(self, pusher):
+        """设置微信推送器"""
+        self._pusher = pusher
+    
     def _get_processor(self):
         """获取智能处理器"""
         if self._processor is None:
@@ -64,7 +69,8 @@ class RecordingRecognizer:
     def on_recording_complete(self, filepath: str, duration: float, 
                               start_time: str,
                               user_id: str, user_name: str,
-                              channel_id: int, recorder_type: str):
+                              channel_id: int, recorder_type: str,
+                              lost_frames: int = 0, loss_rate: float = 0.0):
         """录音完成回调 - 由 ChannelRecorder 调用"""
         if not os.path.exists(filepath):
             logger.warning(f"录音文件不存在: {filepath}")
@@ -90,7 +96,9 @@ class RecordingRecognizer:
                 'channel_id': channel_id,
                 'recorder_type': recorder_type,
                 'file_size': file_size,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now().isoformat(),
+                'lost_frames': lost_frames,
+                'loss_rate': loss_rate
             })
         
         # 触发处理
@@ -152,6 +160,8 @@ class RecordingRecognizer:
         recorder_type = task['recorder_type']
         file_size = task['file_size']
         timestamp = task['timestamp']
+        lost_frames = task.get('lost_frames', 0)  # 丢包数
+        loss_rate = task.get('loss_rate', 0.0)    # 丢包率
         
         # 如果时长为0，从文件计算
         if duration <= 0:
@@ -221,7 +231,8 @@ class RecordingRecognizer:
                 
                 self._print_result(ai_result, quality, suggestion, user_name, recorder_type, 
                                   existing.asr_text or "", existing.recognize_duration or 0, 
-                                  start_time, self.dsp_config.get("expert_model", "N/A"))
+                                  start_time, self.dsp_config.get("expert_model", "N/A"),
+                                  duration=duration, lost_frames=lost_frames, loss_rate=loss_rate)
                 logger.info(f"[缓存] 识别完成: {os.path.basename(filepath)} (from cache)")
                 return
         
@@ -261,7 +272,9 @@ class RecordingRecognizer:
             asr_raw = ai_result.content
             
             # 打印识别结果
-            self._print_result(ai_result, quality, suggestion, user_name, recorder_type, asr_raw, recognize_duration, start_time, expert_model)
+            self._print_result(ai_result, quality, suggestion, user_name, recorder_type, 
+                             asr_raw, recognize_duration, start_time, expert_model,
+                             duration=duration, lost_frames=lost_frames, loss_rate=loss_rate)
             
             # 更新数据库
             if self._db:
@@ -275,6 +288,10 @@ class RecordingRecognizer:
                     snr_db=quality.snr_db,
                     recognize_duration=recognize_duration
                 )
+            
+            # 微信推送（如果配置了推送器）
+            if self._pusher and ai_result.success and ai_result.content:
+                self._send_push(ai_result, quality, user_name, channel_id, duration)
             
             logger.info(f"✅ 识别完成: {os.path.basename(filepath)}, 耗时: {recognize_duration:.2f}s")
             
@@ -300,7 +317,46 @@ class RecordingRecognizer:
         # 无论成功还是失败，都由callback处理队列
         pass
     
-    def _print_result(self, ai_result, quality, suggestion, user_name, recorder_type, asr_raw="", recognize_duration=0.0, start_time="", expert_model=""):
+    def _send_push(self, ai_result, quality, user_name: str, channel_id: int, duration: float):
+        """发送微信推送"""
+        try:
+            # 信号类型图标
+            type_icon = {"CQ": "📡", "QSO": "📱", "CQ73": "📡", "QRZ": "📶", "NOISE": "🔇", "UNKNOWN": "❓"}
+            icon = type_icon.get(ai_result.signal_type, "❓")
+            
+            # 构建标题 - 简洁格式
+            title = f"{icon} {user_name} - {ai_result.signal_type}"
+            
+            # 构建内容 - 详细信息
+            signal_text = ai_result.content_normalized or ai_result.content
+            content = f"""{signal_text}
+
+━━━━━━━━━━━━━━━
+📊 SNR: {quality.snr_db:.1f} dB | ⏱️ {duration:.1f}s
+🏷️ 类型: {ai_result.signal_type} | 📺 频道: {channel_id}"""
+            
+            # 发送推送（根据关键词匹配）
+            sent = self._pusher.send_to_matched(
+                text=ai_result.content,
+                title=title,
+                content=content
+            )
+            
+            # 控制台输出推送结果
+            if sent:
+                logger.info(f"[推送] 已发送给: {', '.join(sent)}")
+                print(f"   📲 微信推送: ✅ 已发送给 {', '.join(sent)}")
+            else:
+                logger.info("[推送] 无匹配目标，未推送")
+                print(f"   📲 微信推送: ⏭️ 无匹配目标")
+                
+        except Exception as e:
+            logger.warning(f"[推送] 推送失败: {e}")
+            print(f"   📲 微信推送: ❌ 推送失败 - {e}")
+    
+    def _print_result(self, ai_result, quality, suggestion, user_name, recorder_type, 
+                     asr_raw="", recognize_duration=0.0, start_time="", expert_model="",
+                     duration=0.0, lost_frames=0, loss_rate=0.0):
         """打印识别结果到控制台"""
         type_icon = {"CQ": "📡", "QSO": "📱", "CQ73": "📡", "QRZ": "📶", "NOISE": "🔇", "UNKNOWN": "❓"}
         icon = type_icon.get(ai_result.signal_type, "❓")
@@ -311,12 +367,13 @@ class RecordingRecognizer:
         print(f"🎙️ [{recorder_type}] {user_name} {time_info}")
         print("-" * 60)
         
-        # 显示使用的模型
-        if expert_model:
-            print(f"   🤖 专家模型: {expert_model}")
-        
-        # 音频质量
-        print(f"   📊 SNR: {quality.snr_db:.1f} dB | 时长: {quality.duration:.1f}s")
+        # 音频质量 - 包含时长和丢包信息
+        quality_info = f"📊 SNR: {quality.snr_db:.1f} dB"
+        if duration > 0:
+            quality_info += f" | 时长: {duration:.1f}s"
+        if lost_frames > 0 or loss_rate > 0:
+            quality_info += f" | 丢包: {lost_frames}帧({loss_rate:.1f}%)"
+        print(quality_info)
         
         # 识别耗时
         if recognize_duration > 0:
@@ -325,13 +382,9 @@ class RecordingRecognizer:
         # DSP处理
         print(f"   🔊 DSP: {'是' if suggestion.needed else '否'} ({suggestion.level})")
         
-        # SenseVoice识别结果
+        # 原始识别结果
         if ai_result.sensevoice_content:
-            print(f"   🎯 SenseVoice: {ai_result.sensevoice_content}")
-        
-        # Qwen专家模型识别结果
-        if ai_result.expert_content:
-            print(f"   🧠 Qwen识别: {ai_result.expert_content}")
+            print(f"   🎤 识别: {ai_result.sensevoice_content}")
         
         # 识别结果 - 优先使用规范化后的内容
         if ai_result.success and ai_result.content:
