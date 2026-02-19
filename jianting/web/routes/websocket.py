@@ -13,6 +13,47 @@ from web.models.database import get_db, send_bot_command, get_user_by_id
 
 logger = logging.getLogger("BotWS")
 
+# 尝试导入 Bot 状态模块
+try:
+    from src.bot_state import get_bot_state
+    HAS_BOT_STATE = True
+except ImportError:
+    HAS_BOT_STATE = False
+    def get_bot_state():
+        return None
+
+
+def broadcast_bot_status():
+    """广播 Bot 状态给所有客户端"""
+    if not HAS_BOT_STATE:
+        return
+    state = get_bot_state()
+    if state:
+        socketio.emit('bot:status', state.to_dict(), broadcast=True)
+
+
+def broadcast_channel_update(channel_id: int, channel_name: str, online_count: int):
+    """广播频道更新"""
+    socketio.emit('bot:channel', {
+        'channel_id': channel_id,
+        'channel_name': channel_name,
+        'online_count': online_count
+    }, broadcast=True)
+
+
+def broadcast_speaking(user_id: str, user_name: str, speaking: bool):
+    """广播说话状态"""
+    socketio.emit('bot:speaking', {
+        'user_id': user_id,
+        'user_name': user_name,
+        'speaking': speaking
+    }, broadcast=True)
+
+
+def broadcast_recording(recording: dict):
+    """广播新录音"""
+    socketio.emit('bot:recording', recording, broadcast=True)
+
 
 # 已认证的 WebSocket 会话
 authenticated_sessions = {}
