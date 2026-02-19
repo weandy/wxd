@@ -1,0 +1,261 @@
+{% extends "layout.html" %}
+{% set active_page = 'dashboard' %}
+
+{% block title %}仪表盘 - BSHT Bot{% endblock %}
+{% block page_title %}仪表盘{% endblock %}
+
+{% block page_content %}
+<!-- 状态卡片 -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">Bot 状态</div>
+        <div class="stat-value">
+            <span class="status-dot" id="botStatusDot"></span>
+            <span id="botStatusText">检测中...</span>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">当前频道</div>
+        <div class="stat-value" id="channelInfo">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">在线人数</div>
+        <div class="stat-value" id="onlineCount">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">今日录音</div>
+        <div class="stat-value" id="todayRecordings">--</div>
+    </div>
+</div>
+
+<!-- 主面板 -->
+<div class="dashboard-grid">
+    <!-- 频道卡片 -->
+    <div class="card">
+        <div class="card-header">
+            <h3>频道概览</h3>
+        </div>
+        <div class="card-body" id="channelCard">
+            <div class="channel-info-loading">加载中...</div>
+        </div>
+    </div>
+
+    <!-- 最近活动 -->
+    <div class="card">
+        <div class="card-header">
+            <h3>最近录音</h3>
+            <a href="/recordings" class="btn btn-sm btn-ghost">查看全部</a>
+        </div>
+        <div class="card-body" id="recentRecordings">
+            <div class="empty-state">加载中...</div>
+        </div>
+    </div>
+</div>
+
+<!-- 系统资源 -->
+<div class="card" style="margin-top:20px;">
+    <div class="card-header">
+        <h3>系统资源</h3>
+    </div>
+    <div class="card-body">
+        <div class="resource-grid">
+            <div class="resource-item">
+                <div class="resource-label">CPU</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="cpuBar" style="width:0%"></div>
+                </div>
+                <div class="resource-value" id="cpuValue">--%</div>
+            </div>
+            <div class="resource-item">
+                <div class="resource-label">内存</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="memBar" style="width:0%"></div>
+                </div>
+                <div class="resource-value" id="memValue">--%</div>
+            </div>
+            <div class="resource-item">
+                <div class="resource-label">磁盘</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="diskBar" style="width:0%"></div>
+                </div>
+                <div class="resource-value" id="diskValue">--%</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 多频道预留 -->
+<div class="coming-soon-banner">
+    多频道管理即将支持 — 支持同时监控多个频道
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const API = window.BSHTApp;
+
+    // ========== Bot WebSocket 连接 ==========
+    let botWs = null;
+
+    function setupBotWs() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const botWsUrl = `${protocol}//${window.location.host}/bot`;
+
+        botWs = new WebSocket(botWsUrl);
+
+        botWs.onopen = () => {
+            console.log('Bot WS 已连接');
+        };
+
+        botWs.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data);
+                console.log('Bot WS 消息:', msg.type);
+
+                switch (msg.type) {
+                    case 'bot:status':
+                        handleBotStatus(msg.data);
+                        break;
+                    case 'bot:channel':
+                        handleChannelUpdate(msg.data);
+                        break;
+                    case 'bot:recording':
+                        handleNewRecording(msg.data);
+                        break;
+                    case 'bot:speaking':
+                        handleUserSpeaking(msg.data);
+                        break;
+                }
+            } catch (e) {
+                console.error('Bot WS 消息解析失败:', e);
+            }
+        };
+
+        botWs.onclose = () => {
+            console.log('Bot WS 断开，5秒后重连...');
+            setTimeout(setupBotWs, 5000);
+        };
+
+        botWs.onerror = (err) => {
+            console.error('Bot WS 错误:', err);
+        };
+    }
+
+    function handleBotStatus(data) {
+        // 更新 Bot 状态显示
+        const statusDot = document.getElementById('botStatusDot');
+        const statusText = document.getElementById('botStatusText');
+
+        if (data.running) {
+            statusDot.className = 'status-dot online';
+            statusText.textContent = '运行中';
+        } else {
+            statusDot.className = 'status-dot offline';
+            statusText.textContent = '已停止';
+        }
+
+        // 更新频道信息
+        if (data.channel_id) {
+            document.getElementById('channelInfo').textContent = `频道 ${data.channel_id}`;
+        }
+        if (data.online_count !== undefined) {
+            document.getElementById('onlineCount').textContent = data.online_count;
+        }
+    }
+
+    function handleChannelUpdate(data) {
+        document.getElementById('channelInfo').textContent = data.channel_name || `频道 ${data.channel_id}`;
+        document.getElementById('onlineCount').textContent = data.online_count || 0;
+    }
+
+    function handleNewRecording(data) {
+        // 新录音产生时，刷新录音列表
+        console.log('新录音:', data.filename);
+        // 可以添加视觉提示
+    }
+
+    function handleUserSpeaking(data) {
+        console.log(`用户 ${data.user_name} ${data.speaking ? '开始说话' : '停止说话'}`);
+        // 可以添加视觉提示
+    }
+
+    // 启动 Bot WebSocket
+    setupBotWs();
+
+    async function loadDashboard() {
+        // Bot 状态
+        try {
+            const bot = await API.get('/api/bot/status');
+            document.getElementById('botStatusDot').classList.add(bot.running ? 'online' : 'offline');
+            document.getElementById('botStatusText').textContent = bot.running ? '运行中' : '已停止';
+            document.getElementById('channelInfo').textContent = bot.channel_id ? `频道 ${bot.channel_id}` : '未加入';
+            document.getElementById('onlineCount').textContent = bot.online_count || '0';
+
+            // 频道卡片
+            if (bot.running && bot.channel_id) {
+                document.getElementById('channelCard').innerHTML = `
+                <div class="channel-detail">
+                    <div class="channel-id">频道 ${bot.channel_id}</div>
+                    <div class="channel-meta">${bot.channel_name || '未命名频道'}</div>
+                    <div class="channel-meta">在线: ${bot.online_count || 0} 人</div>
+                    ${bot.uptime ? `<div class="channel-meta">运行时长: ${bot.uptime}</div>` : ''}
+                </div>
+            `;
+            } else {
+                document.getElementById('channelCard').innerHTML = '<div class="empty-state">Bot 未运行或未加入频道</div>';
+            }
+        } catch (e) {
+            document.getElementById('botStatusText').textContent = '无法连接';
+            document.getElementById('botStatusDot').classList.add('offline');
+        }
+
+        // 今日统计
+        try {
+            const summary = await API.get('/api/system/summary');
+            document.getElementById('todayRecordings').textContent = summary.today.total_recordings;
+        } catch (e) { }
+
+        // 最近录音
+        try {
+            const data = await API.get('/api/recordings?per_page=5');
+            const container = document.getElementById('recentRecordings');
+            if (data.items && data.items.length > 0) {
+                container.innerHTML = data.items.map(r => `
+                <div class="activity-item">
+                    <div class="activity-time">${r.timestamp ? r.timestamp.substring(11, 19) : '--'}</div>
+                    <div class="activity-content">
+                        <span class="activity-user">${r.user_name || '未知'}</span>
+                        <span class="activity-text">${r.asr_text ? r.asr_text.substring(0, 60) : '(未识别)'}</span>
+                    </div>
+                    <div class="activity-duration">${r.duration ? r.duration.toFixed(1) + 's' : '--'}</div>
+                </div>
+            `).join('');
+            } else {
+                container.innerHTML = '<div class="empty-state">暂无录音记录</div>';
+            }
+        } catch (e) {
+            document.getElementById('recentRecordings').innerHTML = '<div class="empty-state">加载失败</div>';
+        }
+
+        // 系统资源
+        try {
+            const stats = await API.get('/api/system/stats');
+            updateProgress('cpu', stats.cpu_percent);
+            updateProgress('mem', stats.memory_percent);
+            updateProgress('disk', stats.disk_percent);
+        } catch (e) { }
+    }
+
+    function updateProgress(id, percent) {
+        percent = Math.round(percent || 0);
+        const bar = document.getElementById(id + 'Bar');
+        const val = document.getElementById(id + 'Value');
+        bar.style.width = percent + '%';
+        val.textContent = percent + '%';
+        bar.className = 'progress-fill' + (percent > 80 ? ' danger' : percent > 60 ? ' warning' : '');
+    }
+
+    loadDashboard();
+    setInterval(loadDashboard, 15000); // 15秒刷新
+</script>
+{% endblock %}
