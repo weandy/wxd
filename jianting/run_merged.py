@@ -67,6 +67,10 @@ class Runner:
         """启动 Bot 服务 (与 Web 共享进程)"""
         from bot_server import BotServer
         from src.bot_state import get_bot_state
+        from src.config import get_config
+        from src.recognizer import RecordingRecognizer, create_recording_callback
+        from src.database import get_database
+        from src.wx_pusher import load_pusher
 
         logger.info("=" * 50)
         logger.info("🤖 启动 Bot 服务...")
@@ -75,8 +79,61 @@ class Runner:
         logger.info("   模式: 共享内存 (单进程)")
         logger.info("=" * 50)
 
+        config = get_config()
+
+        # 初始化识别器
+        recognizer = None
+        recording_callback = None
+        if config.dsp.enabled and config.api.siliconflow_key:
+            logger.info("🎯 初始化伪实时识别器...")
+
+            recognizer = RecordingRecognizer(
+                api_key=config.api.siliconflow_key,
+                dsp_config={
+                    "algorithm": config.dsp.algorithm,
+                    "agc_mode": config.dsp.agc_mode,
+                    "snr_threshold_high": config.dsp.snr_threshold_high,
+                    "snr_threshold_low": config.dsp.snr_threshold_low,
+                    "expert_model": config.api.expert_model if config.api.expert_model_enabled else "glm-4-flash",
+                    "zhipu_key": config.api.zhipu_key,
+                    "zhipu_base_url": config.api.zhipu_base_url
+                }
+            )
+
+            # 设置数据库
+            db = get_database(config.database.path)
+            recognizer.set_database(db)
+
+            # 初始化微信推送器
+            pusher = load_pusher()
+            if pusher:
+                recognizer.set_pusher(pusher)
+                logger.info(f"📲 微信推送已启用 ({len(pusher.targets)} 个目标)")
+
+            # 扫描历史录音
+            logger.info("🔍 扫描历史录音文件...")
+            added, processed = recognizer.scan_and_register_recordings("recordings", max_count=50)
+            if added > 0 or processed > 0:
+                logger.info(f"   📝 新增 {added} 条记录, 识别 {processed} 个文件")
+            else:
+                logger.info("   ✅ 没有需要处理的历史文件")
+
+            # 创建回调函数
+            recording_callback = create_recording_callback(recognizer, channel_id)
+            logger.info("✅ 识别器已初始化")
+
         # 初始化 Bot
         bot = BotServer(username, password, channel_id, channel_passcode)
+
+        # 如果有识别器，修改 BotServer 来使用回调
+        if recording_callback:
+            original_setup = BotServer._setup_recorder
+
+            def new_setup(self, callback=None):
+                return original_setup(self, recording_callback)
+
+            BotServer._setup_recorder = new_setup
+
         self.bot = bot
 
         # 启动 Bot
