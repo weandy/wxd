@@ -36,7 +36,9 @@ class Runner:
     def __init__(self):
         self.web_thread = None
         self.bot = None
+        self.recognizer = None  # 保存识别器引用以便清理
         self.running = True
+        self._stop_event = threading.Event()  # 用于协调停止
 
     def start_web(self, port: int = 8080):
         """启动 Web 服务"""
@@ -50,11 +52,17 @@ class Runner:
 
         app = create_app()
 
-        # 在独立线程中运行 SocketIO
+        # 在独立线程中运行 SocketIO（非 daemon，确保正确清理）
         def run_socketio():
-            socketio.run(app, host='0.0.0.0', port=port, debug=False)
+            try:
+                socketio.run(app, host='0.0.0.0', port=port, debug=False)
+            except Exception as e:
+                if not self._stop_event.is_set():  # 不是因为我们主动停止
+                    logger.error(f"Web 服务异常: {e}")
+            finally:
+                logger.info("Web 服务已停止")
 
-        self.web_thread = threading.Thread(target=run_socketio, daemon=True)
+        self.web_thread = threading.Thread(target=run_socketio, daemon=False)
         self.web_thread.start()
 
         # 等待服务启动
@@ -85,42 +93,52 @@ class Runner:
         recognizer = None
         recording_callback = None
         if config.dsp.enabled and config.api.siliconflow_key:
-            logger.info("🎯 初始化伪实时识别器...")
+            try:
+                logger.info("🎯 初始化伪实时识别器...")
 
-            recognizer = RecordingRecognizer(
-                api_key=config.api.siliconflow_key,
-                dsp_config={
-                    "algorithm": config.dsp.algorithm,
-                    "agc_mode": config.dsp.agc_mode,
-                    "snr_threshold_high": config.dsp.snr_threshold_high,
-                    "snr_threshold_low": config.dsp.snr_threshold_low,
-                    "expert_model": config.api.expert_model if config.api.expert_model_enabled else "glm-4-flash",
-                    "zhipu_key": config.api.zhipu_key,
-                    "zhipu_base_url": config.api.zhipu_base_url
-                }
-            )
+                recognizer = RecordingRecognizer(
+                    api_key=config.api.siliconflow_key,
+                    dsp_config={
+                        "algorithm": config.dsp.algorithm,
+                        "agc_mode": config.dsp.agc_mode,
+                        "snr_threshold_high": config.dsp.snr_threshold_high,
+                        "snr_threshold_low": config.dsp.snr_threshold_low,
+                        "expert_model": config.api.expert_model if config.api.expert_model_enabled else "glm-4-flash",
+                        "zhipu_key": config.api.zhipu_key,
+                        "zhipu_base_url": config.api.zhipu_base_url
+                    }
+                )
 
-            # 设置数据库
-            db = get_database(config.database.path)
-            recognizer.set_database(db)
+                # 设置数据库
+                db = get_database(config.database.path)
+                recognizer.set_database(db)
 
-            # 初始化微信推送器
-            pusher = load_pusher()
-            if pusher:
-                recognizer.set_pusher(pusher)
-                logger.info(f"📲 微信推送已启用 ({len(pusher.targets)} 个目标)")
+                # 初始化微信推送器
+                pusher = load_pusher()
+                if pusher:
+                    recognizer.set_pusher(pusher)
+                    logger.info(f"📲 微信推送已启用 ({len(pusher.targets)} 个目标)")
 
-            # 扫描历史录音
-            logger.info("🔍 扫描历史录音文件...")
-            added, processed = recognizer.scan_and_register_recordings("recordings", max_count=50)
-            if added > 0 or processed > 0:
-                logger.info(f"   📝 新增 {added} 条记录, 识别 {processed} 个文件")
-            else:
-                logger.info("   ✅ 没有需要处理的历史文件")
+                # 扫描历史录音
+                logger.info("🔍 扫描历史录音文件...")
+                added, processed = recognizer.scan_and_register_recordings("recordings", max_count=50)
+                if added > 0 or processed > 0:
+                    logger.info(f"   📝 新增 {added} 条记录, 识别 {processed} 个文件")
+                else:
+                    logger.info("   ✅ 没有需要处理的历史文件")
 
-            # 创建回调函数
-            recording_callback = create_recording_callback(recognizer)
-            logger.info("✅ 识别器已初始化")
+                # 创建回调函数
+                recording_callback = create_recording_callback(recognizer)
+                self.recognizer = recognizer  # 保存引用
+                logger.info("✅ 识别器已初始化")
+
+            except Exception as e:
+                logger.warning(f"⚠️ 识别器初始化失败: {e}")
+                logger.info("📝 将继续运行，但只录音不识别")
+                recognizer = None
+                recording_callback = None
+        else:
+            logger.info("📝 DSP未启用或API Key未配置，只录制不识别")
 
         # 初始化 Bot
         bot = BotServer(username, password, channel_id, channel_passcode)
@@ -143,6 +161,10 @@ class Runner:
             logger.info("收到停止信号")
         finally:
             bot.stop()
+            # 关闭识别器
+            if self.recognizer:
+                logger.info("正在关闭识别器...")
+                self.recognizer.shutdown(wait=True)
 
     def run(self):
         """运行所有服务"""
@@ -177,9 +199,12 @@ class Runner:
     def stop(self):
         """停止所有服务"""
         logger.info("正在停止所有服务...")
+        self._stop_event.set()  # 设置停止标志
         self.running = False
-        if self.bot:
-            self.bot.stop()
+
+        # 注意：Bot 和识别器的清理在 start_bot 的 finally 块中处理
+        # 这里只需要设置停止标志
+        logger.info("停止信号已发送")
 
 
 def main():

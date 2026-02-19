@@ -14,7 +14,12 @@ class BotState:
     online_count: int = 0
     uptime_start: float = field(default_factory=time.time)
     active_speakers: Dict[int, Dict[str, Any]] = field(default_factory=dict)
-    _lock: threading.Lock = field(default_factory=threading.Lock)
+    _lock: threading.Lock = field(default=None)
+
+    def __post_init__(self):
+        """初始化后创建锁（避免 dataclass 可变默认值问题）"""
+        if self._lock is None:
+            object.__setattr__(self, '_lock', threading.Lock())
 
     def to_dict(self) -> dict:
         """转换为字典"""

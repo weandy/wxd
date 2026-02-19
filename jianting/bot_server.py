@@ -374,11 +374,20 @@ class BotServer:
                     if conn_result.success:
                         logger.info(f"语音服务器连接成功: {conn_result.data['ip']}:{conn_result.data['port']}")
 
+                        # 获取频道状态（在线人数）
+                        start = time.time()
+                        status_result = self.client.get_channel_status(self.target_channel_id)
+                        self.metrics.record("api.get_channel_status", time.time() - start)
+                        initial_online_count = 0
+                        if status_result.success:
+                            initial_online_count = len(status_result.data.get('online_users', []))
+                            logger.info(f"频道在线: {initial_online_count} 人")
+
                         # 更新共享状态并广播
                         if HAS_BOT_STATE:
                             state = get_bot_state()
-                            state.update(channel_name=f"频道{self.target_channel_id}", online_count=0)
-                            broadcast_channel_update(self.target_channel_id, state.channel_name, 0)
+                            state.update(channel_name=f"频道{self.target_channel_id}", online_count=initial_online_count)
+                            broadcast_channel_update(self.target_channel_id, state.channel_name, initial_online_count)
 
                         # 3. 启动监听 (包含 UDP 心跳)
                         if self.listener.start_listening():

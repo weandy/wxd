@@ -55,7 +55,29 @@ class RecordingRecognizer:
     def set_pusher(self, pusher):
         """设置微信推送器"""
         self._pusher = pusher
-    
+
+    def shutdown(self, wait: bool = True):
+        """关闭识别器，释放资源
+
+        Args:
+            wait: 是否等待所有任务完成（默认True）
+        """
+        logger.info("[识别器] 正在关闭...")
+
+        # 关闭线程池
+        if self._executor:
+            pending = self.get_pending_count()
+            if pending > 0:
+                logger.info(f"[识别器] 等待 {pending} 个任务完成...")
+            self._executor.shutdown(wait=wait)
+            logger.info("[识别器] 线程池已关闭")
+
+        # 清空队列
+        with self._lock:
+            self._pending_queue.clear()
+
+        logger.info("[识别器] 已关闭")
+
     def _get_processor(self):
         """获取智能处理器"""
         if self._processor is None:
