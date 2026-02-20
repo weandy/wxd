@@ -321,3 +321,22 @@ class AudioMixer:
         with self._lock:
             depths = [us.jitter_buf.depth for us in self._streams.values() if us.is_active]
             return max(depths) if depths else 0
+
+    def shutdown(self):
+        """关闭混音器，释放所有资源"""
+        logger.info("[AudioMixer] 正在关闭...")
+
+        # 1. 清空所有用户流
+        with self._lock:
+            self._streams.clear()
+            self._user_names.clear()
+
+        # 2. 清空解码器池
+        self._decoder_pool.clear()
+        logger.info("[AudioMixer] 解码器池已清空")
+
+        # 3. 清理录制器引用
+        self._recorder = None
+        self._tx_recorder = None
+
+        logger.info("[AudioMixer] 已关闭")

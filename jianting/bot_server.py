@@ -5,6 +5,22 @@ import logging
 import threading
 from bsht_client import BSHTClient, TokenInfo, StatusCode, ChannelConnectionParams
 
+
+def get_reconnect_delay(attempt: int, base: int = 2, max_delay: int = 60, min_delay: int = 2) -> int:
+    """计算指数退避延迟时间
+
+    Args:
+        attempt: 重试次数（从0开始）
+        base: 指数基数（默认2，即 2, 4, 8, 16...）
+        max_delay: 最大延迟秒数（默认60秒）
+        min_delay: 最小延迟秒数（默认2秒）
+
+    Returns:
+        延迟秒数
+    """
+    delay = min(max_delay, base ** attempt)
+    return max(min_delay, delay)
+
 # 共享状态模块 (可选导入)
 try:
     from src.bot_state import get_bot_state
@@ -205,10 +221,32 @@ class BotServer:
         self._main_loop()
 
     def stop(self):
-        """停止机器人"""
+        """停止机器人并清理所有资源"""
         self.is_running = False
         self.client.close()
         logger.info("机器人已停止")
+
+        # 清理混音器资源
+        if hasattr(self, '_mixer') and self._mixer:
+            try:
+                self._mixer.shutdown()
+            except Exception as e:
+                logger.warning(f"清理混音器失败: {e}")
+
+        # 清理录制器
+        if hasattr(self, '_recorder') and self._recorder:
+            try:
+                self._recorder.close_all()
+            except Exception as e:
+                logger.warning(f"清理录制器失败: {e}")
+
+        if hasattr(self, '_tx_recorder') and self._tx_recorder:
+            try:
+                self._tx_recorder.close_all()
+            except Exception as e:
+                logger.warning(f"清理TX录制器失败: {e}")
+
+        logger.info("所有资源已清理")
 
     @timed_sync("bot_server.login")
     def _login(self) -> bool:
@@ -425,10 +463,13 @@ class BotServer:
                 if hasattr(self, 'listener'):
                     self.listener.stop_listening()
             
-            # 如果异常退出，等待一段时间重试
+            # 如果异常退出，等待一段时间重试（指数退避）
             if self.is_running:
-                logger.info("10秒后重试连接...")
-                time.sleep(10)
+                reconnect_attempt = getattr(self, '_reconnect_attempt', 0)
+                delay = get_reconnect_delay(reconnect_attempt)
+                logger.info(f"{delay}秒后重试连接... (尝试 {reconnect_attempt + 1})")
+                time.sleep(delay)
+                self._reconnect_attempt = reconnect_attempt + 1
 
     @timed_sync("bot_server.setup_recorder")
     def _setup_recorder(self, recording_callback=None):
@@ -594,8 +635,9 @@ class BotServer:
                             
                         except Exception as e:
                             reconnect_count += 1
-                            logger.error(f"重连异常: {e}")
-                            time.sleep(5)
+                            delay = get_reconnect_delay(reconnect_count, max_delay=30)
+                            logger.error(f"重连异常: {e}, {delay}秒后重试")
+                            time.sleep(delay)
                     
                     if not reconnected:
                         logger.error("重连次数超限，退出")

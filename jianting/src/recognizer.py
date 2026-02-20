@@ -375,68 +375,68 @@ class RecordingRecognizer:
             # 控制台输出推送结果
             if sent:
                 logger.info(f"[推送] 已发送给: {', '.join(sent)}")
-                print(f"   📲 微信推送: ✅ 已发送给 {', '.join(sent)}")
+                logger.info(f"   📲 微信推送: ✅ 已发送给 {', '.join(sent)}")
             else:
                 logger.info("[推送] 无匹配目标，未推送")
-                print(f"   📲 微信推送: ⏭️ 无匹配目标")
-                
+                logger.info(f"   📲 微信推送: ⏭️ 无匹配目标")
+
         except Exception as e:
             logger.warning(f"[推送] 推送失败: {e}")
-            print(f"   📲 微信推送: ❌ 推送失败 - {e}")
+            logger.info(f"   📲 微信推送: ❌ 推送失败 - {e}")
     
-    def _print_result(self, ai_result, quality, suggestion, user_name, recorder_type, 
+    def _print_result(self, ai_result, quality, suggestion, user_name, recorder_type,
                      asr_raw="", recognize_duration=0.0, start_time="", expert_model="",
                      duration=0.0, lost_frames=0, loss_rate=0.0):
         """打印识别结果到控制台"""
         type_icon = {"CQ": "📡", "QSO": "📱", "CQ73": "📡", "QRZ": "📶", "NOISE": "🔇", "UNKNOWN": "❓"}
         icon = type_icon.get(ai_result.signal_type, "❓")
-        
-        print("\n" + "=" * 60)
+
+        logger.info("=" * 60)
         # 显示时间戳和类型
         time_info = f"🕐 {start_time}" if start_time else ""
-        print(f"🎙️ [{recorder_type}] {user_name} {time_info}")
-        print("-" * 60)
-        
+        logger.info(f"🎙️ [{recorder_type}] {user_name} {time_info}")
+        logger.info("-" * 60)
+
         # 音频质量 - 包含时长和丢包信息
         quality_info = f"📊 SNR: {quality.snr_db:.1f} dB"
         if duration > 0:
             quality_info += f" | 时长: {duration:.1f}s"
         if lost_frames > 0 or loss_rate > 0:
             quality_info += f" | 丢包: {lost_frames}帧({loss_rate:.1f}%)"
-        print(quality_info)
-        
+        logger.info(quality_info)
+
         # 识别耗时
         if recognize_duration > 0:
-            print(f"   ⏱️ 识别耗时: {recognize_duration:.2f}s")
-        
+            logger.info(f"   ⏱️ 识别耗时: {recognize_duration:.2f}s")
+
         # DSP处理
-        print(f"   🔊 DSP: {'是' if suggestion.needed else '否'} ({suggestion.level})")
+        logger.info(f"   🔊 DSP: {'是' if suggestion.needed else '否'} ({suggestion.level})")
         
         # 原始识别结果
         if ai_result.sensevoice_content:
-            print(f"   🎤 识别: {ai_result.sensevoice_content}")
-        
+            logger.info(f"   🎤 识别: {ai_result.sensevoice_content}")
+
         # 识别结果 - 优先使用规范化后的内容
         if ai_result.success and ai_result.content:
             # 显示规范化内容(如果与原始不同)
             display_content = ai_result.content_normalized if ai_result.content_normalized else ai_result.content
-            print(f"   {icon} {ai_result.signal_type}: {display_content}")
-            
+            logger.info(f"   {icon} {ai_result.signal_type}: {display_content}")
+
             # 如果有呼号识别，显示出来
             if ai_result.user_id:
-                print(f"   📻 呼号: {ai_result.user_id}")
-            
+                logger.info(f"   📻 呼号: {ai_result.user_id}")
+
             # 确保confidence是浮点数
             try:
                 conf = float(ai_result.confidence)
             except (ValueError, TypeError):
                 conf = 0.5
             conf_color = "🟢" if conf > 0.8 else "🟡" if conf > 0.5 else "🔴"
-            print(f"   {conf_color} 置信度: {conf*100:.1f}%")
+            logger.info(f"   {conf_color} 置信度: {conf*100:.1f}%")
         else:
-            print(f"   ❌ 识别失败: {ai_result.error}")
-        
-        print("=" * 60)
+            logger.info(f"   ❌ 识别失败: {ai_result.error}")
+
+        logger.info("=" * 60)
     
     def scan_and_register_recordings(self, base_dir: str = "recordings", 
                                       max_count: int = 100):

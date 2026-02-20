@@ -526,11 +526,11 @@ class AIClient:
         """调用ASR识别 - 使用 SiliconFlow SenseVoice"""
         try:
             import requests
-            
+
             # SiliconFlow ASR API 端点
             url = f"{self.base_url}/audio/transcriptions"
             headers = {"Authorization": f"Bearer {self.api_key}"}
-            
+
             with open(audio_path, 'rb') as f:
                 files = {
                     'file': ('audio.wav', f, 'audio/wav')
@@ -541,42 +541,69 @@ class AIClient:
                     'response_format': 'json'
                 }
                 response = requests.post(url, files=files, data=data, headers=headers, timeout=60)
-            
+
             if response.status_code == 200:
                 result = response.json()
+                logger.info(f"[SenseVoice] API返回200, 完整结果: {result}")
+
+                # 打印响应文本的原始内容
+                logger.info(f"[SenseVoice] 响应文本长度: {len(response.text)}")
+
                 # 处理不同的响应格式
                 text = result.get("text", "") or result.get("data", {}).get("text", "")
+                if not text:
+                    # 尝试其他可能的字段
+                    text = result.get("result", {}).get("text", "") if isinstance(result.get("result"), dict) else ""
+                if not text:
+                    # 可能是直接返回文本
+                    text = result.get("content", "") or result.get("transcription", "")
+
+                logger.info(f"[SenseVoice] 提取的文本: '{text}'")
+
+                # 如果文本为空，返回失败（音频无法识别）
+                if not text:
+                    logger.warning(f"[SenseVoice] ⚠️ 音频无法识别（无语音内容）")
+                    return False, "语音识别失败：音频中无有效语音内容"
+
                 return True, text
+            elif response.status_code == 401:
+                logger.error(f"[SenseVoice] ❌ API认证失败! 请检查 SILICONFLOW_API_KEY 是否正确或已过期")
+                return False, "API认证失败，请检查 API Key"
             else:
-                # 尝试另一种方式 - 使用 chat completions 方式的 ASR
-                return self._call_asr_via_chat(audio_path)
+                logger.warning(f"[SenseVoice] ⚠️ API返回 {response.status_code}")
+                logger.warning(f"[SenseVoice] 响应内容: {response.text[:500]}")
+                return False, f"API错误: {response.status_code}"
         except Exception as e:
-            # 备用方案
-            return self._call_asr_via_chat(audio_path)
+            logger.warning(f"[SenseVoice] ⚠️ 异常: {type(e).__name__}: {e}")
+            import traceback
+            logger.warning(f"[SenseVoice] 堆栈: {traceback.format_exc()[:500]}")
+            return False, f"识别异常: {str(e)}"
     @retry_on_error(max_attempts=3, backoff=2.0)
     def _call_asr_via_chat(self, audio_path: str) -> Tuple[bool, str]:
         """通过 chat 接口调用 ASR"""
         try:
             import requests
             import base64
-            
+
             # 读取音频文件
             with open(audio_path, 'rb') as f:
                 audio_data = f.read()
-            
+
+            logger.info(f"[SenseVoice] 尝试 chat 方式... (音频大小: {len(audio_data)} bytes)")
+
             # 使用带有音频输入的模型
             url = f"{self.base_url}/chat/completions"
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json"
             }
-            
+
             # 使用 SenseVoice 模型进行语音识别
             payload = {
                 "model": "FunAudioLLM/SenseVoiceSmall",
                 "messages": [
                     {
-                        "role": "user", 
+                        "role": "user",
                         "content": [
                             {"type": "audio", "audio_url": {"url": "data:audio/wav;base64," + base64.b64encode(audio_data).decode()}},
                             {"type": "text", "text": "请识别这段音频中的中文语音内容，直接输出识别到的中文文字，不要其他内容。如果不是中文，请输出空。"}
@@ -585,16 +612,19 @@ class AIClient:
                 ],
                 "max_tokens": 1024
             }
-            
+
             response = requests.post(url, json=payload, headers=headers, timeout=60)
-            
+
             if response.status_code == 200:
                 result = response.json()
                 content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                logger.info(f"[SenseVoice] chat 方式成功: {content[:100] if content else '(空)'}")
                 return True, content
             else:
+                logger.warning(f"[SenseVoice] chat 方式失败: {response.status_code} - {response.text[:200]}")
                 return False, f"API错误: {response.status_code} - {response.text[:100]}"
         except Exception as e:
+            logger.warning(f"[SenseVoice] chat 方式异常: {e}")
             return False, f"ASR错误: {str(e)}"
     
     @retry_on_error(max_attempts=3, backoff=2.0)

@@ -10,8 +10,14 @@ BSHT Bot 合并启动脚本 (单一进程架构)
 启动方式:
   python run_merged.py
 """
-import os
+# Windows 控制台编码修复（必须在最前面）
 import sys
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
+import os
 import signal
 import threading
 import time
@@ -21,13 +27,13 @@ import logging
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT_DIR)
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-logger = logging.getLogger("RunMerged")
+# 配置日志 - 使用项目统一的日志配置
+from src.logging_setup import setup_logger
+logger = setup_logger("RunMerged", "run")
+
+# 确保 AudioCodec 模块的 logger 也被配置
+import logging
+_audio_codec_logger = logging.getLogger("AudioCodec")
 
 
 class Runner:
@@ -52,6 +58,10 @@ class Runner:
 
         app = create_app()
 
+        # 保存 socketio 引用以便后续停止
+        self._socketio = socketio
+        self._app = app
+
         # 在独立线程中运行 SocketIO
         # 注意：daemon=True 确保主线程退出时 Web 线程能自动终止
         def run_socketio():
@@ -71,6 +81,12 @@ class Runner:
         logger.info("✅ Web 服务已启动")
 
         return self.web_thread
+
+    def stop_web(self):
+        """停止 Web 服务"""
+        # Flask-SocketIO 在非请求上下文中无法直接 stop
+        # daemon 线程会自动退出，这里只记录日志
+        logger.info("Web 服务将在主线程退出后自动停止")
 
     def start_bot(self, username: str, password: str, channel_id: int, channel_passcode: str = ""):
         """启动 Bot 服务 (与 Web 共享进程)"""
@@ -203,6 +219,9 @@ class Runner:
         self._stop_event.set()  # 设置停止标志
         self.running = False
 
+        # 先停止 Web 服务
+        self.stop_web()
+
         # 注意：Bot 和识别器的清理在 start_bot 的 finally 块中处理
         # 这里只需要设置停止标志
         logger.info("停止信号已发送")
@@ -210,12 +229,12 @@ class Runner:
 
 def main():
     """主入口"""
-    print("=" * 60)
-    print("🚀 BSHT Bot 合并启动 (单进程架构)")
-    print("=" * 60)
-    print("  Web:  http://localhost:8080")
-    print("  Bot:  共享内存状态")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("BSHT Bot 合并启动 (单进程架构)")
+    logger.info("=" * 60)
+    logger.info("  Web:  http://localhost:8080")
+    logger.info("  Bot:  共享内存状态")
+    logger.info("=" * 60)
 
     runner = Runner()
 

@@ -14,8 +14,12 @@ import sys
 import numpy as np
 import threading
 import time
+import logging
 from typing import Optional, Callable
 from enum import Enum
+
+# 创建模块 logger
+logger = logging.getLogger("AudioCodec")
 
 # 异步优化模块 - 用于CPU密集型任务的线程池处理
 try:
@@ -64,7 +68,7 @@ class OpusDecoder:
             for path in search_paths:
                 try:
                     lib = ctypes.CDLL(path)
-                    print(f"[Opus] 已加载库: {path}")
+                    logger.info(f"[Opus] 已加载库: {path}")
                     break
                 except OSError as e:
                     # 库加载失败，尝试下一个路径
@@ -73,7 +77,7 @@ class OpusDecoder:
             for path in ["libopus.0.dylib", "libopus.dylib"]:
                 try:
                     lib = ctypes.CDLL(path)
-                    print(f"[Opus] 已加载库: {path}")
+                    logger.info(f"[Opus] 已加载库: {path}")
                     break
                 except OSError as e:
                     continue
@@ -81,13 +85,13 @@ class OpusDecoder:
             for path in ["libopus.so.0", "libopus.so"]:
                 try:
                     lib = ctypes.CDLL(path)
-                    print(f"[Opus] 已加载库: {path}")
+                    logger.info(f"[Opus] 已加载库: {path}")
                     break
                 except OSError as e:
                     continue
 
         if lib is None:
-            print("Warning: Could not load Opus library")
+            logger.info("Warning: Could not load Opus library")
             return None
 
         # 配置函数签名 (只需一次)
@@ -118,12 +122,12 @@ class OpusDecoder:
             error = ctypes.c_int()
             self._decoder = self._lib.opus_decoder_create(sample_rate, channels, ctypes.byref(error))
             if error.value != 0:
-                 print(f"Opus decoder init error: {error.value}")
+                 logger.info(f"Opus decoder init error: {error.value}")
                  self._decoder = None
             else:
-                print(f"[Opus] 解码器创建成功: {sample_rate}Hz")
+                logger.info(f"[Opus] 解码器创建成功: {sample_rate}Hz")
         except Exception as e:
-            print(f"Error initializing Opus decoder: {e}")
+            logger.info(f"Error initializing Opus decoder: {e}")
 
     def decode(self, payload: bytes) -> bytes:
         """解码 Opus 数据为 PCM"""
@@ -150,13 +154,13 @@ class OpusDecoder:
 
             if samples < 0:
                 # specific error codes
-                # print(f"Opus decode error code: {samples}")
+                # logger.info(f"Opus decode error code: {samples}")
                 return b''
 
             return ctypes.string_at(pcm_buffer, samples * self.channels * 2)
 
         except Exception as e:
-            # print(f"Decode exc: {e}")
+            # logger.info(f"Decode exc: {e}")
             return b''
 
     def destroy(self):
@@ -195,10 +199,13 @@ class OpusEncoder:
         """加载 Opus 库"""
         import platform
         system = platform.system()
-        
+
         if system == "Windows":
-            dll_path = os.path.join(os.path.dirname(__file__), "opus.dll")
-            search_paths = [dll_path, "libopus-0.dll", "opus.dll"]
+            # 使用绝对路径
+            import os
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            dll_path = os.path.join(base_dir, "opus.dll")
+            search_paths = [os.path.abspath(dll_path), "libopus-0.dll", "opus.dll"]
         elif system == "Darwin":  # macOS
             search_paths = ["libopus.0.dylib", "libopus.dylib"]
         else:  # Linux
@@ -207,7 +214,7 @@ class OpusEncoder:
         for lib_path in search_paths:
             try:
                 self._lib = ctypes.CDLL(lib_path)
-                print(f"[Opus] 已加载库: {lib_path}")
+                logger.info(f"[Opus] 已加载库: {lib_path}")
                 break
             except OSError:
                 continue
@@ -259,7 +266,7 @@ class OpusEncoder:
 
         # 设置比特率
         self.set_bitrate(self.bitrate)
-        print(f"[Opus] 编码器创建成功: {self.sample_rate}Hz, {self.bitrate}bps")
+        logger.info(f"[Opus] 编码器创建成功: {self.sample_rate}Hz, {self.bitrate}bps")
 
     def encode(self, pcm_data: np.ndarray) -> bytes:
         """
@@ -333,21 +340,21 @@ class AudioRecorder:
         self.stream = None
         self.is_recording = False
 
-        print(f"[AudioRecorder] 初始化: {sample_rate}Hz")
+        logger.info(f"[AudioRecorder] 初始化: {sample_rate}Hz")
 
     def _init_pyaudio(self):
         """初始化 PyAudio"""
         try:
             import pyaudio
             self.pyaudio = pyaudio.PyAudio()
-            print("[AudioRecorder] PyAudio 初始化成功")
+            logger.info("[AudioRecorder] PyAudio 初始化成功")
             return True
         except ImportError:
-            print("[AudioRecorder] 错误: PyAudio 未安装")
-            print("                请运行: pip install pyaudio")
+            logger.info("[AudioRecorder] 错误: PyAudio 未安装")
+            logger.info("                请运行: pip install pyaudio")
             return False
         except Exception as e:
-            print(f"[AudioRecorder] PyAudio 初始化失败: {e}")
+            logger.info(f"[AudioRecorder] PyAudio 初始化失败: {e}")
             return False
 
     def start_recording(self) -> bool:
@@ -369,11 +376,11 @@ class AudioRecorder:
             )
 
             self.is_recording = True
-            print(f"[AudioRecorder] 开始录音: {self.sample_rate}Hz")
+            logger.info(f"[AudioRecorder] 开始录音: {self.sample_rate}Hz")
             return True
 
         except Exception as e:
-            print(f"[AudioRecorder] 启动录音失败: {e}")
+            logger.info(f"[AudioRecorder] 启动录音失败: {e}")
             self.cleanup()
             return False
 
@@ -393,9 +400,9 @@ class AudioRecorder:
             return pcm_data
 
         except Exception as e:
-            print(f"[AudioRecorder] 读取音频失败: {e}")
+            logger.info(f"[AudioRecorder] 读取音频失败: {e}")
             import traceback
-            traceback.print_exc()
+            traceback.logger.info_exc()
             return None
 
     def stop_recording(self):
@@ -405,7 +412,7 @@ class AudioRecorder:
 
         self.is_recording = False
         self.cleanup()
-        print("[AudioRecorder] 停止录音")
+        logger.info("[AudioRecorder] 停止录音")
 
     def cleanup(self):
         """清理资源"""
@@ -443,20 +450,20 @@ class AudioPlayer:
         # 音量增益
         self.volume_gain = 1.0
 
-        print(f"[AudioPlayer] 初始化: {sample_rate}Hz")
+        logger.info(f"[AudioPlayer] 初始化: {sample_rate}Hz")
 
     def _init_pyaudio(self):
         """初始化 PyAudio"""
         try:
             import pyaudio
             self.pyaudio = pyaudio.PyAudio()
-            print("[AudioPlayer] PyAudio 初始化成功")
+            logger.info("[AudioPlayer] PyAudio 初始化成功")
             return True
         except ImportError:
-            print("[AudioPlayer] 错误: PyAudio 未安装")
+            logger.info("[AudioPlayer] 错误: PyAudio 未安装")
             return False
         except Exception as e:
-            print(f"[AudioPlayer] PyAudio 初始化失败: {e}")
+            logger.info(f"[AudioPlayer] PyAudio 初始化失败: {e}")
             return False
 
     def start_playback(self) -> bool:
@@ -478,11 +485,11 @@ class AudioPlayer:
             )
 
             self.is_playing = True
-            print(f"[AudioPlayer] 开始播放: {self.sample_rate}Hz")
+            logger.info(f"[AudioPlayer] 开始播放: {self.sample_rate}Hz")
             return True
 
         except Exception as e:
-            print(f"[AudioPlayer] 启动播放失败: {e}")
+            logger.info(f"[AudioPlayer] 启动播放失败: {e}")
             self.cleanup()
             return False
 
@@ -507,7 +514,7 @@ class AudioPlayer:
             self.stream.write(pcm_data)
 
         except Exception as e:
-            print(f"[AudioPlayer] 播放失败: {e}")
+            logger.info(f"[AudioPlayer] 播放失败: {e}")
 
     def set_volume_gain(self, gain: float):
         """设置音量增益"""
@@ -520,7 +527,7 @@ class AudioPlayer:
 
         self.is_playing = False
         self.cleanup()
-        print("[AudioPlayer] 停止播放")
+        logger.info("[AudioPlayer] 停止播放")
 
     def cleanup(self):
         """清理资源"""
@@ -574,7 +581,7 @@ class PTTController:
         self.start_time = 0
         self.duration = 0
         
-        print("[PTT] PTT 控制器初始化完成")
+        logger.info("[PTT] PTT 控制器初始化完成")
     
     def press(self):
         """PTT 按下"""
@@ -586,7 +593,7 @@ class PTTController:
         
         if not self.recorder.is_recording:
             if not self.recorder.start_recording():
-                print("[PTT] 启动录音失败")
+                logger.info("[PTT] 启动录音失败")
                 self.is_pressed = False
                 self._set_state(PTTState.IDLE)
                 return
@@ -602,7 +609,7 @@ class PTTController:
         self.total_bytes = 0
         self.start_time = time.time()
         
-        print("[PTT] PTT 按下 - 开始录音")
+        logger.info("[PTT] PTT 按下 - 开始录音")
     
     def release(self):
         """PTT 释放"""
@@ -625,7 +632,7 @@ class PTTController:
         
         self._set_state(PTTState.IDLE)
         
-        print(f"[PTT] PTT 释放 - 停止录音 (时长: {self.duration:.2f}s, 发送: {self.frames_sent} 帧)")
+        logger.info(f"[PTT] PTT 释放 - 停止录音 (时长: {self.duration:.2f}s, 发送: {self.frames_sent} 帧)")
     
     def _record_loop(self):
         """录音循环"""
@@ -646,18 +653,18 @@ class PTTController:
                     
                     if self.frames_sent % 50 == 0:
                         elapsed = time.time() - self.start_time
-                        print(f"[PTT] 录音中: {elapsed:.1f}s, {self.frames_sent} 帧")
+                        logger.info(f"[PTT] 录音中: {elapsed:.1f}s, {self.frames_sent} 帧")
                         
             except Exception as e:
                 if self.is_pressed:
-                    print(f"[PTT] 录音异常: {e}")
+                    logger.info(f"[PTT] 录音异常: {e}")
                 break
     
     def _send_stop_packet(self):
         """发送停止包"""
         if self.on_audio_packet:
             self.on_audio_packet(b'')
-            print("[PTT] 发送停止包")
+            logger.info("[PTT] 发送停止包")
     
     def _set_state(self, state):
         """设置状态"""
@@ -699,14 +706,14 @@ class PTTControllerKeyboard:
         )
         self.is_listening = False
         
-        print("[PTT] 键盘 PTT 控制器初始化 (空格键)")
+        logger.info("[PTT] 键盘 PTT 控制器初始化 (空格键)")
     
     def _on_state_change(self, state):
         """状态变化回调"""
         if state == PTTState.RECORDING:
-            print("[PTT] >>> 正在录音... (释放空格键停止)")
+            logger.info("[PTT] >>> 正在录音... (释放空格键停止)")
         elif state == PTTState.IDLE:
-            print("[PTT] || 已停止")
+            logger.info("[PTT] || 已停止")
     
     def start(self):
         """开始监听键盘"""
@@ -714,9 +721,9 @@ class PTTControllerKeyboard:
             return
         
         self.is_listening = True
-        print("[PTT] 键盘监听已启动")
-        print("[PTT] 按住空格键说话, 释放停止")
-        print("[PTT] 按 Ctrl+C 退出")
+        logger.info("[PTT] 键盘监听已启动")
+        logger.info("[PTT] 按住空格键说话, 释放停止")
+        logger.info("[PTT] 按 Ctrl+C 退出")
         
         try:
             import keyboard
@@ -743,11 +750,11 @@ class PTTControllerKeyboard:
             keyboard.wait()
             
         except ImportError:
-            print("[PTT] 错误: keyboard 模块未安装")
-            print("       请运行: pip install keyboard")
+            logger.info("[PTT] 错误: keyboard 模块未安装")
+            logger.info("       请运行: pip install keyboard")
             self.is_listening = False
         except Exception as e:
-            print(f"[PTT] 键盘监听失败: {e}")
+            logger.info(f"[PTT] 键盘监听失败: {e}")
             self.is_listening = False
     
     def stop(self):
@@ -768,7 +775,7 @@ class PTTControllerKeyboard:
             pass
         
         self.ptt_controller.cleanup()
-        print("[PTT] 键盘监听已停止")
+        logger.info("[PTT] 键盘监听已停止")
     
     def cleanup(self):
         """清理"""
