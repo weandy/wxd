@@ -114,8 +114,7 @@ class Runner:
                 logger.info("🎯 初始化伪实时识别器...")
 
                 recognizer = RecordingRecognizer(
-                    api_key=config.api.siliconflow_key,
-                    expert_model=config.api.expert_model if config.api.expert_model_enabled else "glm-4-flash"
+                    api_key=config.api.siliconflow_key
                 )
 
                 # 设置数据库

@@ -48,9 +48,6 @@ class APIConfig:
     """AI API配置"""
     siliconflow_key: str = ""
     base_url: str = "https://api.siliconflow.cn/v1"
-    # 专家分析模型配置
-    expert_model_enabled: bool = True  # 是否启用专家模型
-    expert_model: str = "glm-4-flash"  # 专家模型名称
 
 
 @dataclass
@@ -91,9 +88,7 @@ class AppConfig:
         # API配置
         api = APIConfig(
             siliconflow_key=os.getenv("SILICONFLOW_API_KEY", ""),
-            base_url=os.getenv("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1"),
-            expert_model_enabled=os.getenv("EXPERT_MODEL_ENABLED", "true").lower() == "true",
-            expert_model=os.getenv("EXPERT_MODEL", "glm-4-flash")
+            base_url=os.getenv("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1")
         )
         
         # 数据库配置

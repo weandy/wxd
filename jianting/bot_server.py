@@ -794,8 +794,7 @@ if __name__ == "__main__":
             # 创建识别器
             from src.recognizer import RecordingRecognizer
             recognizer = RecordingRecognizer(
-                api_key=config.api.siliconflow_key,
-                expert_model=config.api.expert_model if config.api.expert_model_enabled else "glm-4-flash"
+                api_key=config.api.siliconflow_key
             )
             
             # 伪实时识别已启用

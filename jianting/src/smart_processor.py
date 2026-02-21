@@ -200,11 +200,9 @@ class AudioQualityAnalyzer:
 class AIClient:
     """AI识别客户端"""
 
-    def __init__(self, api_key: str, base_url: str = "https://api.siliconflow.cn/v1",
-                 expert_model: str = "glm-4-flash"):
+    def __init__(self, api_key: str, base_url: str = "https://api.siliconflow.cn/v1"):
         self.api_key = api_key
         self.base_url = base_url
-        self.expert_model = expert_model
         self.prompts = self._load_prompts()
         self.prompt_md = self._load_prompt_md()  # 加载md格式的prompt
     
@@ -831,12 +829,12 @@ ASR识别结果: "{asr_text}"
 class SmartAudioProcessor:
     """智能音频处理器 - 整合所有功能"""
 
-    def __init__(self, api_key: str, expert_model: str = "glm-4-flash"):
+    def __init__(self, api_key: str):
         self.api_key = api_key
         # 初始化组件
         self.analyzer = AudioQualityAnalyzer()
-        # 专家模型配置
-        self.ai = AIClient(api_key, expert_model=expert_model)
+        # AI 客户端
+        self.ai = AIClient(api_key)
 
     def process(self, audio_path: str) -> Tuple[AIResult, AudioQuality]:
         """

@@ -31,9 +31,8 @@ logger = _get_logger()
 class RecordingRecognizer:
     """录音识别器 - 伪实时处理录音文件，支持并发识别"""
 
-    def __init__(self, api_key: str, expert_model: str = "glm-4-flash"):
+    def __init__(self, api_key: str):
         self.api_key = api_key
-        self.expert_model = expert_model
         self._processor = None
         self._db = None
         self._pusher = None  # 微信推送器
@@ -83,8 +82,7 @@ class RecordingRecognizer:
         if self._processor is None:
             from smart_processor import SmartAudioProcessor
             self._processor = SmartAudioProcessor(
-                api_key=self.api_key,
-                expert_model=self.expert_model
+                api_key=self.api_key
             )
         return self._processor
     
@@ -254,7 +252,7 @@ class RecordingRecognizer:
                 )
                 self._print_result(ai_result, quality, user_name, recorder_type,
                                   existing.asr_text or "", existing.recognize_duration or 0,
-                                  start_time, self.expert_model,
+                                  start_time,
                                   duration=duration, lost_frames=lost_frames, loss_rate=loss_rate)
                 logger.info(f"[缓存] 识别完成: {os.path.basename(filepath)} (from cache)")
                 return
@@ -285,18 +283,15 @@ class RecordingRecognizer:
             
             processor = self._get_processor()
             ai_result, quality = processor.process(filepath)
-            
+
             recognize_duration = time.time() - start_time_recognize
-            
-            # 获取使用的专家模型
-            expert_model = self.expert_model
 
             # 保存原始ASR结果用于显示
             asr_raw = ai_result.content
 
             # 打印识别结果
             self._print_result(ai_result, quality, user_name, recorder_type,
-                             asr_raw, recognize_duration, start_time, expert_model,
+                             asr_raw, recognize_duration, start_time,
                              duration=duration, lost_frames=lost_frames, loss_rate=loss_rate)
             
             # 更新数据库
@@ -378,7 +373,7 @@ class RecordingRecognizer:
             logger.info(f"   📲 微信推送: ❌ 推送失败 - {e}")
     
     def _print_result(self, ai_result, quality, user_name, recorder_type,
-                     asr_raw="", recognize_duration=0.0, start_time="", expert_model="",
+                     asr_raw="", recognize_duration=0.0, start_time="",
                      duration=0.0, lost_frames=0, loss_rate=0.0):
         """打印识别结果到控制台"""
         type_icon = {"CQ": "📡", "QSO": "📱", "CQ73": "📡", "QRZ": "📶", "NOISE": "🔇", "UNKNOWN": "❓"}
