@@ -218,97 +218,58 @@ class AudioQualityAnalyzer:
     
     @staticmethod
     def suggest_dsp(quality: AudioQuality,
-                   threshold_high: float = 20.0,
-                   threshold_low: float = 10.0,
-                   always_on: bool = True) -> DSPSuggestion:
+                   always_on: bool = True,
+                   min_rms_db: float = -50.0,
+                   min_duration: float = 0.3) -> DSPSuggestion:
         """
         根据音频质量建议DSP处理
-        
+
         Args:
             quality: 音频质量分析结果
-            threshold_high: SNR 高阈值（默认 20dB）
-            threshold_low: SNR 低阈值（默认 10dB）
             always_on: 是否始终启用 DSP（默认 True，全部降噪）
+            min_rms_db: 最小音频电平阈值（默认 -50dB）
+            min_duration: 最小音频时长阈值（默认 0.3秒）
         """
-        # 策略：始终启用 DSP 降噪
-        # 原因：SNR 计算不准确，短音频容易误判
-        # 降噪对清晰音频影响很小，但对噪声音频有帮助
+        # 统一使用 timedomain + webrtc AGC
+
+        # 判断音频是否有效
+        is_valid = quality.rms_db > min_rms_db and quality.duration > min_duration
+
+        if not is_valid:
+            return DSPSuggestion(
+                needed=False,
+                reason=f"音频无效（电平: {quality.rms_db:.1f}dB, 时长: {quality.duration:.1f}s），跳过处理",
+                level="INVALID",
+                algorithm="none",
+                confidence=0.99
+            )
+
         if always_on:
+            return DSPSuggestion(
+                needed=True,
+                reason=f"DSP处理: timedomain + webrtc AGC（电平: {quality.rms_db:.1f}dB, SNR: {quality.snr_db:.1f}dB）",
+                level="ON",
+                algorithm="timedomain",
+                confidence=0.95
+            )
+        else:
             snr = quality.snr_db
-            
-            # 判断音频是否有效（有一定音量和时长）
-            is_valid = quality.rms_db > -50 and quality.duration > 0.3
-            
-            if not is_valid:
+            if snr > 20:
                 return DSPSuggestion(
                     needed=False,
-                    reason=f"音频无效（电平: {quality.rms_db:.1f}dB, 时长: {quality.duration:.1f}s），跳过处理",
-                    level="INVALID",
-                    algorithm="none",
-                    confidence=0.99
-                )
-            
-            # 始终返回需要 DSP，选择合适的算法
-            if snr > threshold_high:
-                return DSPSuggestion(
-                    needed=True,
-                    reason=f"始终DSP处理: SNR={snr:.1f}dB，使用轻度降噪",
+                    reason=f"信噪比很高 ({snr:.1f}dB)，跳过处理",
                     level="LOW",
-                    algorithm="timedomain",
+                    algorithm="none",
                     confidence=0.95
-                )
-            elif snr > threshold_low:
-                return DSPSuggestion(
-                    needed=True,
-                    reason=f"始终DSP处理: SNR={snr:.1f}dB，使用中度降噪",
-                    level="MEDIUM",
-                    algorithm="spectral",
-                    confidence=0.85
                 )
             else:
                 return DSPSuggestion(
                     needed=True,
-                    reason=f"始终DSP处理: SNR={snr:.1f}dB，使用强力降噪",
-                    level="HIGH",
-                    algorithm="rnnoise",
-                    confidence=0.9
+                    reason=f"信噪比比较低 ({snr:.1f}dB)，DSP降噪",
+                    level="MEDIUM",
+                    algorithm="timedomain",
+                    confidence=0.85
                 )
-
-        # 原有逻辑（保留以兼容）
-        snr = quality.snr_db
-
-        if snr > threshold_high:
-            return DSPSuggestion(
-                needed=False,
-                reason=f"信噪比很高 ({snr:.1f}dB)，音频本身很清晰",
-                level="LOW",
-                algorithm="none",
-                confidence=0.95
-            )
-        elif snr > threshold_low:
-            return DSPSuggestion(
-                needed=True,
-                reason=f"信噪比中等 ({snr:.1f}dB)，DSP可能有轻微改善",
-                level="MEDIUM",
-                algorithm="timedomain",
-                confidence=0.7
-            )
-        elif snr > 0:
-            return DSPSuggestion(
-                needed=True,
-                reason=f"信噪比较低 ({snr:.1f}dB)，建议使用DSP降噪",
-                level="HIGH",
-                algorithm="spectral",
-                confidence=0.85
-            )
-        else:
-            return DSPSuggestion(
-                needed=True,
-                reason=f"信噪比很低 ({snr:.1f}dB)，强烈建议使用DSP降噪",
-                level="VERY_HIGH",
-                algorithm="rnnoise",
-                confidence=0.9
-            )
 
 
 class DSPProcessor:
@@ -1036,13 +997,12 @@ class SmartAudioProcessor:
         # 智谱API配置
         zhipu_key = self.dsp_config.get("zhipu_key", "")
         zhipu_base_url = self.dsp_config.get("zhipu_base_url", "https://open.bigmodel.cn/api/paas/v4")
-        self.ai = AIClient(api_key, expert_model=expert_model, 
+        self.ai = AIClient(api_key, expert_model=expert_model,
                           zhipu_key=zhipu_key, zhipu_base_url=zhipu_base_url)
-        
-        # SNR阈值
-        self.snr_threshold_high = self.dsp_config.get("snr_threshold_high", 20.0)
-        self.snr_threshold_low = self.dsp_config.get("snr_threshold_low", 10.0)
-        # 始终启用 DSP（默认开启，全部降噪）
+
+        # DSP 配置参数（从环境变量读取）
+        self.min_rms_db = self.dsp_config.get("min_rms_db", -50.0)
+        self.min_duration = self.dsp_config.get("min_duration", 0.3)
         self.dsp_always_on = self.dsp_config.get("dsp_always_on", True)
     
     def process(self, audio_path: str, keep_temp: bool = False) -> Tuple[AIResult, AudioQuality, DSPSuggestion]:
@@ -1069,9 +1029,9 @@ class SmartAudioProcessor:
             # 2. 判断是否需要DSP
             suggestion = self.analyzer.suggest_dsp(
                 quality,
-                self.snr_threshold_high,
-                self.snr_threshold_low,
-                self.dsp_always_on
+                self.dsp_always_on,
+                self.min_rms_db,
+                self.min_duration
             )
             
             # 3. 准备音频文件

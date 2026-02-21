@@ -60,12 +60,14 @@ class APIConfig:
 class DSPConfig:
     """DSP处理配置"""
     enabled: bool = True
-    algorithm: str = "timedomain"  # timedomain, spectral, wiener, rnnoise
-    agc_mode: str = "webrtc"
+    algorithm: str = "timedomain"  # 统一使用 timedomain
+    agc_mode: str = "webrtc"       # 统一使用 webrtc AGC
     vad_enabled: bool = False
-    # SNR阈值配置
-    snr_threshold_high: float = 20.0  # SNR > 20 不需要处理
-    snr_threshold_low: float = 10.0   # SNR < 10 需要处理
+    # 有效性判断阈值
+    min_rms_db: float = -50.0      # 最小音频电平 (dB)
+    min_duration: float = 0.3       # 最小音频时长 (秒)
+    # 是否始终启用 DSP（默认开启，全部降噪）
+    dsp_always_on: bool = True
 
 
 @dataclass
@@ -117,11 +119,12 @@ class AppConfig:
         # DSP配置
         dsp = DSPConfig(
             enabled=os.getenv("DSP_ENABLED", "true").lower() == "true",
-            algorithm=os.getenv("DSP_ALGORITHM", "timedomain"),
-            agc_mode=os.getenv("DSP_AGC_MODE", "webrtc"),
+            algorithm="timedomain",  # 固定使用 timedomain
+            agc_mode="webrtc",      # 固定使用 webrtc AGC
             vad_enabled=os.getenv("DSP_VAD_ENABLED", "false").lower() == "true",
-            snr_threshold_high=float(os.getenv("DSP_SNR_THRESHOLD_HIGH", "20.0")),
-            snr_threshold_low=float(os.getenv("DSP_SNR_THRESHOLD_LOW", "10.0"))
+            min_rms_db=float(os.getenv("DSP_MIN_RMS_DB", "-50.0")),    # 最小音频电平
+            min_duration=float(os.getenv("DSP_MIN_DURATION", "0.3")),    # 最小音频时长
+            dsp_always_on=os.getenv("DSP_ALWAYS_ON", "true").lower() == "true"  # 是否始终启用DSP
         )
         
         # 数据库配置
