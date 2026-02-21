@@ -118,8 +118,10 @@ class Runner:
                     dsp_config={
                         "algorithm": config.dsp.algorithm,
                         "agc_mode": config.dsp.agc_mode,
-                        "snr_threshold_high": config.dsp.snr_threshold_high,
-                        "snr_threshold_low": config.dsp.snr_threshold_low,
+                        "min_rms_db": config.dsp.min_rms_db,
+                        "min_duration": config.dsp.min_duration,
+                        "dsp_always_on": config.dsp.dsp_always_on,
+                        "dual_mode": config.dsp.dual_mode,
                         "expert_model": config.api.expert_model if config.api.expert_model_enabled else "glm-4-flash",
                         "zhipu_key": config.api.zhipu_key,
                         "zhipu_base_url": config.api.zhipu_base_url
