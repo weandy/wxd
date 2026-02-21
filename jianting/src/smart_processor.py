@@ -370,16 +370,12 @@ class DSPProcessor:
 
 class AIClient:
     """AI识别客户端"""
-    
-    def __init__(self, api_key: str, base_url: str = "https://api.siliconflow.cn/v1", 
-                 expert_model: str = "glm-4-flash",
-                 zhipu_key: str = "", zhipu_base_url: str = "https://open.bigmodel.cn/api/paas/v4"):
+
+    def __init__(self, api_key: str, base_url: str = "https://api.siliconflow.cn/v1",
+                 expert_model: str = "glm-4-flash"):
         self.api_key = api_key
         self.base_url = base_url
         self.expert_model = expert_model
-        # 智谱API配置
-        self.zhipu_key = zhipu_key
-        self.zhipu_base_url = zhipu_base_url
         self.prompts = self._load_prompts()
         self.prompt_md = self._load_prompt_md()  # 加载md格式的prompt
     
@@ -994,14 +990,10 @@ class SmartAudioProcessor:
             algorithm=self.dsp_config.get("algorithm", "timedomain"),
             agc_mode=self.dsp_config.get("agc_mode", "webrtc")
         )
-        
+
         # 专家模型配置
         expert_model = self.dsp_config.get("expert_model", "glm-4-flash")
-        # 智谱API配置
-        zhipu_key = self.dsp_config.get("zhipu_key", "")
-        zhipu_base_url = self.dsp_config.get("zhipu_base_url", "https://open.bigmodel.cn/api/paas/v4")
-        self.ai = AIClient(api_key, expert_model=expert_model,
-                          zhipu_key=zhipu_key, zhipu_base_url=zhipu_base_url)
+        self.ai = AIClient(api_key, expert_model=expert_model)
 
         # DSP 配置参数（从环境变量读取）
         self.min_rms_db = self.dsp_config.get("min_rms_db", -50.0)

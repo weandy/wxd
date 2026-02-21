@@ -48,9 +48,6 @@ class APIConfig:
     """AI API配置"""
     siliconflow_key: str = ""
     base_url: str = "https://api.siliconflow.cn/v1"
-    # 智谱AI API配置
-    zhipu_key: str = ""
-    zhipu_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
     # 专家分析模型配置
     expert_model_enabled: bool = True  # 是否启用专家模型
     expert_model: str = "glm-4-flash"  # 专家模型名称
@@ -112,8 +109,6 @@ class AppConfig:
         api = APIConfig(
             siliconflow_key=os.getenv("SILICONFLOW_API_KEY", ""),
             base_url=os.getenv("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1"),
-            zhipu_key=os.getenv("ZHIPU_API_KEY", ""),
-            zhipu_base_url=os.getenv("ZHIPU_BASE_URL", "https://open.bigmodel.cn/api/paas/v4"),
             expert_model_enabled=os.getenv("EXPERT_MODEL_ENABLED", "true").lower() == "true",
             expert_model=os.getenv("EXPERT_MODEL", "glm-4-flash")
         )

@@ -122,9 +122,7 @@ class Runner:
                         "min_duration": config.dsp.min_duration,
                         "dsp_always_on": config.dsp.dsp_always_on,
                         "dual_mode": config.dsp.dual_mode,
-                        "expert_model": config.api.expert_model if config.api.expert_model_enabled else "glm-4-flash",
-                        "zhipu_key": config.api.zhipu_key,
-                        "zhipu_base_url": config.api.zhipu_base_url
+                        "expert_model": config.api.expert_model if config.api.expert_model_enabled else "glm-4-flash"
                     }
                 )
 
