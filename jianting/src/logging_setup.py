@@ -25,7 +25,66 @@ DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 RECOGNIZE_FORMAT = "%(asctime)s [%(levelname)s] [%(channel)s] [%(user)s] %(message)s"
 
 
-def setup_logger(name: str = "BSHTBox", 
+class WindowsSafeRotator:
+    """Windows安全的文件轮转处理器 - 解决文件锁定问题"""
+
+    def __init__(self, baseFilename, backupCount):
+        self.baseFilename = baseFilename
+        self.backupCount = backupCount
+        self._file_locked_error_logged = False
+
+    def __call__(self, stream):
+        """执行轮转操作"""
+        stream.close()
+
+        # 获取带日期的备份文件名
+        import glob
+        base = self.baseFilename
+        if os.path.exists(base):
+            # 检查是否已有带日期的备份
+            pattern = base + ".*"
+            existing = glob.glob(pattern)
+
+            if existing:
+                # 已存在轮转文件，跳过
+                return
+
+            # 尝试重命名
+            try:
+                from datetime import datetime
+                date_str = datetime.now().strftime("%Y-%m-%d")
+                new_name = f"{base}.{date_str}"
+
+                # 如果目标文件已存在，先删除（Windows需要）
+                if os.path.exists(new_name):
+                    try:
+                        os.remove(new_name)
+                    except PermissionError:
+                        # 文件被锁定，静默跳过
+                        if not self._file_locked_error_logged:
+                            logging.warning(f"日志轮转: 文件 {new_name} 被锁定，跳过重命名")
+                            self._file_locked_error_logged = True
+                        return
+
+                os.rename(base, new_name)
+                self._file_locked_error_logged = False
+
+            except PermissionError as e:
+                # Windows 文件锁定 - 静默处理，下次重试
+                if not self._file_locked_error_logged:
+                    logging.warning(f"日志轮转: 文件被锁定，将在下个周期重试: {e}")
+                    self._file_locked_error_logged = True
+            except Exception as e:
+                logging.warning(f"日志轮转失败: {e}")
+
+        # 重新打开原文件
+        try:
+            stream.baseStream = open(self.baseFilename, 'a', encoding='utf-8')
+        except Exception:
+            pass  # 忽略打开失败
+
+
+def setup_logger(name: str = "BSHTBox",
                 log_file: str = None,
                 level: int = logging.INFO,
                 console: bool = True) -> logging.Logger:
@@ -48,15 +107,52 @@ def setup_logger(name: str = "BSHTBox",
     # 文件handler - 按时间轮转，每周一个新文件
     if log_file:
         file_path = LOG_FILES.get(log_file, log_file)
-        
+
         # TimeRotatingFileHandler: 每天午夜轮转，保留7天
+        # 添加 delay=True 避免启动时就打开文件
+        # 添加 rbtHandler 处理轮转错误
         file_handler = logging.handlers.TimedRotatingFileHandler(
             file_path,
             when="midnight",      # 每天午夜
             interval=1,           # 每天一个文件
             backupCount=7,        # 保留7天
-            encoding="utf-8"
+            encoding="utf-8",
+            delay=True            # Windows 友好：延迟打开文件
         )
+
+        # 处理 Windows 文件锁定错误
+        def safe_rotator(stream):
+            """安全的轮转处理，捕获 Windows 文件锁定错误"""
+            try:
+                # 先关闭流
+                stream.close()
+                # 尝试重命名
+                from datetime import datetime
+                date_str = datetime.now().strftime("%Y-%m-%d")
+                new_name = f"{file_path}.{date_str}"
+
+                # 如果目标文件已存在，跳过
+                if os.path.exists(new_name):
+                    return
+
+                # 尝试移动文件
+                if os.path.exists(file_path):
+                    try:
+                        os.rename(file_path, new_name)
+                    except PermissionError:
+                        # 文件被锁定，跳过轮转，下次重试
+                        logging.debug(f"日志文件被锁定，轮转延迟")
+                        return
+            except Exception as e:
+                logging.debug(f"日志轮转处理: {e}")
+
+            # 重新打开文件
+            try:
+                stream.baseStream = open(file_path, 'a', encoding='utf-8')
+            except Exception:
+                pass
+
+        file_handler.rotator = safe_rotator
         file_handler.setLevel(level)
         file_handler.setFormatter(logging.Formatter(LOG_FORMAT, DATE_FORMAT))
         logger.addHandler(file_handler)
