@@ -1,0 +1,122 @@
+{% extends "layout.html" %}
+{% set active_page = 'settings' %}
+
+{% block title %}系统设置 - BSHT Bot{% endblock %}
+{% block page_title %}系统设置{% endblock %}
+
+{% block page_content %}
+<!-- 修改密码 -->
+<div class="card">
+    <div class="card-header">
+        <h3>修改密码</h3>
+    </div>
+    <div class="card-body">
+        <div id="forcePasswordAlert" class="error-message" style="display:none;">
+            首次登录，请修改默认密码后继续使用。
+        </div>
+        <form id="passwordForm" style="max-width:400px;">
+            <div class="form-group">
+                <label for="oldPassword">当前密码</label>
+                <input type="password" id="oldPassword" required>
+            </div>
+            <div class="form-group">
+                <label for="newPassword">新密码 (至少6位)</label>
+                <input type="password" id="newPassword" required minlength="6">
+            </div>
+            <div class="form-group">
+                <label for="confirmPassword">确认新密码</label>
+                <input type="password" id="confirmPassword" required>
+            </div>
+            <div id="pwdError" class="error-message" style="display:none;"></div>
+            <div id="pwdSuccess" class="success-message" style="display:none;">密码修改成功</div>
+            <button type="submit" class="btn btn-primary">修改密码</button>
+        </form>
+    </div>
+</div>
+
+<!-- Bot 控制 -->
+<div class="card" style="margin-top:20px;">
+    <div class="card-header">
+        <h3>Bot 控制</h3>
+    </div>
+    <div class="card-body">
+        <p class="text-muted" style="margin-bottom:16px;">对 Bot 执行控制操作。重启将使用优雅重启方式。</p>
+        <button class="btn btn-primary" id="restartBtn" onclick="restartBot()">重启 Bot</button>
+        <span id="restartStatus" class="text-muted" style="margin-left:12px;"></span>
+    </div>
+</div>
+
+<!-- 纠错规则 -->
+<div class="card" style="margin-top:20px;">
+    <div class="card-header">
+        <h3>纠错规则</h3>
+    </div>
+    <div class="card-body">
+        <p class="text-muted" style="margin-bottom:16px;">管理语音识别纠错规则，支持热更新，无需重启服务。</p>
+        <a href="/correction" class="btn btn-primary">管理纠错规则</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const API = window.BSHTApp;
+
+    // 检查是否强制改密
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('force_password') === '1') {
+        document.getElementById('forcePasswordAlert').style.display = 'block';
+    }
+
+    document.getElementById('passwordForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const errEl = document.getElementById('pwdError');
+        const succEl = document.getElementById('pwdSuccess');
+        errEl.style.display = 'none';
+        succEl.style.display = 'none';
+
+        const newPwd = document.getElementById('newPassword').value;
+        const confirmPwd = document.getElementById('confirmPassword').value;
+
+        if (newPwd !== confirmPwd) {
+            errEl.textContent = '两次输入的密码不一致';
+            errEl.style.display = 'block';
+            return;
+        }
+
+        try {
+            await API.put('/api/auth/password', {
+                old_password: document.getElementById('oldPassword').value,
+                new_password: newPwd
+            });
+            succEl.style.display = 'block';
+            document.getElementById('passwordForm').reset();
+
+            // 如果是强制改密，跳转到仪表盘
+            if (params.get('force_password') === '1') {
+                setTimeout(() => { window.location.href = '/dashboard'; }, 1500);
+            }
+        } catch (err) {
+            errEl.textContent = err.message || '密码修改失败';
+            errEl.style.display = 'block';
+        }
+    });
+
+    async function restartBot() {
+        if (!confirm('确定要重启 Bot 吗？')) return;
+        const btn = document.getElementById('restartBtn');
+        const status = document.getElementById('restartStatus');
+        btn.disabled = true;
+        status.textContent = '正在发送重启指令...';
+
+        try {
+            await API.post('/api/bot/restart');
+            status.textContent = '重启指令已发送';
+        } catch (e) {
+            status.textContent = '发送失败: ' + (e.message || '未知错误');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+</script>
+{% endblock %}

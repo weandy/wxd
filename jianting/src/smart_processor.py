@@ -226,72 +226,94 @@ class AIClient:
             except Exception as e:
                 print(f"[AIClient] 加载Prompt MD失败: {e}")
         return ""
-    
+
+    def _load_correction_rules(self) -> dict:
+        """从数据库加载纠错规则"""
+        try:
+            from web.models.database import get_db_path
+            import sqlite3
+            db_path = get_db_path()
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT wrong_text, correct_text
+                FROM correction_rules
+                WHERE enabled = 1
+                ORDER BY priority DESC
+            """)
+            rules = {row['wrong_text']: row['correct_text'] for row in cursor.fetchall()}
+            conn.close()
+            if rules:
+                print(f"[AIClient] 从数据库加载 {len(rules)} 条纠错规则")
+            return rules
+        except Exception as e:
+            # 数据库不可用时返回空字典，使用内置规则
+            return {}
+
     def _apply_correction_rules(self, text: str) -> str:
         """应用本地纠错规则"""
         if not text:
             return text
-        
+
         import re
-        
-        # 词语纠错规则（按出现频率排序）
-        corrections = {
-            # 高频错误
-            '柴友': '台友',
-            '财友': '台友',
-            '菜油': '台友',
-            '超收': '抄收',
-            '抄手': '抄收',
-            '有他': '有台',
-            '抽书': '抄收',
-            # 常见误识别
-            '抄收': '抄收',
-            '台有': '台友',
-            '台优': '台友',
-            '台由': '台友',
-            '台柚': '台友',
-            '太友': '台友',
-            '套友': '台友',
-            # 数字相关
-            '幺': '1',
-            '腰': '1',
-            '两': '2',
-            '二': '2',
-            '三': '3',
-            '山': '3',
-            '思': '4',
-            '四': '4',
-            '无': '5',
-            '五': '5',
-            '陆': '6',
-            '量': '6',
-            '大': '6',
-            '拐': '7',
-            '起': '7',
-            '七': '7',
-            '九': '9',
-            '狗': '9',
-            '动': '0',
-            '洞': '0',
-            '栋': '0',
-            # 字母解释法相关
-            'sQ': 'CQ',
-            'sQCQ': 'CQ',
-            'cQ': 'CQ',
-            'CQ CQ CQ CQ': 'CQ CQ CQ',
-            # 常见语音拼写
-            'kilolo': 'Kilo',
-            'Florid': 'Florida',
-            'Pap': 'Papa',
-            'Brav': 'Bravo',
-            'Delt': 'Delta',
-            'Sierra': 'Sierra',
-            'Romeo': 'Romeo',
-            'Tango': 'Tango',
-        }
-        
+
+        # 优先从数据库加载纠错规则
+        rules = self._load_correction_rules()
+
+        # 如果数据库有规则，使用数据库规则
+        if rules:
+            corrections = rules
+        else:
+            # 备用：使用内置规则
+            corrections = {
+                # 高频错误
+                '柴友': '台友',
+                '财友': '台友',
+                '菜油': '台友',
+                '超收': '抄收',
+                '抄手': '抄收',
+                '有他': '有台',
+                '抽书': '抄收',
+                # 常见误识别
+                '抄收': '抄收',
+                '台有': '台友',
+                '台优': '台友',
+                '台由': '台友',
+                '台柚': '台友',
+                '太友': '台友',
+                '套友': '台友',
+                # 数字相关
+                '幺': '1',
+                '腰': '1',
+                '两': '2',
+                '二': '2',
+                '三': '3',
+                '山': '3',
+                '思': '4',
+                '四': '4',
+                '无': '5',
+                '五': '5',
+                '陆': '6',
+                '量': '6',
+                '大': '6',
+                '拐': '7',
+                '起': '7',
+                '七': '7',
+                '九': '9',
+                '狗': '9',
+                '动': '0',
+                '洞': '0',
+                '栋': '0',
+                # 字母解释法相关
+                'sQ': 'CQ',
+                'sQCQ': 'CQ',
+                'cQ': 'CQ',
+                'CQ CQ CQ CQ': 'CQ CQ CQ',
+            }
+
         result = text
-        
+
         # 应用词语纠错
         for wrong, correct in corrections.items():
             result = result.replace(wrong, correct)

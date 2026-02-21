@@ -218,6 +218,30 @@ def migrate(db_path=None):
     except Exception as e:
         print(f"迁移 notify_services 表: {e}")
 
+    # 纠错规则表
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS correction_rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            wrong_text TEXT NOT NULL UNIQUE,
+            correct_text TEXT NOT NULL,
+            category TEXT DEFAULT 'general',
+            enabled INTEGER DEFAULT 1,
+            priority INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # 检查并添加 priority 字段（如果旧表没有）
+    try:
+        cursor.execute("PRAGMA table_info(correction_rules)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'priority' not in columns:
+            cursor.execute("ALTER TABLE correction_rules ADD COLUMN priority INTEGER DEFAULT 0")
+            print("添加 correction_rules.priority 字段")
+    except Exception as e:
+        print(f"迁移 correction_rules 表: {e}")
+
     conn.commit()
     conn.close()
 
