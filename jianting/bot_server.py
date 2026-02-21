@@ -813,10 +813,15 @@ if __name__ == "__main__":
             from src.database import get_database
             db = get_database(config.database.path)
             recognizer.set_database(db)
-            
+
             # 初始化微信推送器
-            from src.wx_pusher import load_pusher
-            pusher = load_pusher()
+            from src.wx_pusher import init_pusher_from_env_migration, reload_pusher
+
+            # 先尝试从环境变量迁移到数据库
+            init_pusher_from_env_migration()
+
+            # 然后从数据库加载（支持热更新）
+            pusher = reload_pusher()
             if pusher:
                 recognizer.set_pusher(pusher)
                 print(f"📲 微信推送已启用 ({len(pusher.targets)} 个目标)")

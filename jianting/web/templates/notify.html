@@ -1,0 +1,327 @@
+{% extends "layout.html" %}
+{% set active_page = 'notify' %}
+
+{% block title %}通知推送 - BSHT Bot{% endblock %}
+{% block page_title %}通知推送管理{% endblock %}
+
+{% block page_actions %}
+<button class="btn btn-sm btn-outline" onclick="reloadPusher()">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21.5 2v6h-6M21.34 5.5A10 10 0 1 1 12 2a10 10 0 0 0 9.34 3.5"/>
+    </svg>
+    热更新
+</button>
+<button class="btn btn-sm btn-outline" onclick="testPusher()">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+        <polyline points="22 4 12 14.01 9 11.01"/>
+    </svg>
+    测试推送
+</button>
+<button class="btn btn-sm btn-primary" onclick="showAddService()">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="12" x2="12" y1="5" y2="19" />
+        <line x1="5" x2="19" y1="12" y2="12" />
+    </svg>
+    添加推送服务
+</button>
+{% endblock %}
+
+{% block page_content %}
+<!-- 推送服务列表 -->
+<div class="table-container" style="margin-bottom:20px">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>服务名称</th>
+                <th>类型</th>
+                <th>状态</th>
+                <th>推送用户数</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody id="servicesBody">
+            <tr>
+                <td colspan="5" class="empty-state">加载中...</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<!-- 推送用户面板 -->
+<div id="usersPanel" class="card" style="display:none">
+    <div class="card-header">
+        <h3 id="usersPanelTitle">推送用户</h3>
+        <button class="btn btn-sm btn-primary" onclick="showAddUser()">添加用户</button>
+    </div>
+    <div class="card-body" style="padding:0">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>用户名称</th>
+                    <th>标识 (OpenID等)</th>
+                    <th>关键词筛选</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="usersBody">
+                <tr>
+                    <td colspan="5" class="empty-state">请点击服务查看用户</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 服务模态框 -->
+<div id="serviceModal" class="modal-overlay" style="display:none"
+    onclick="if(event.target===this)closeModal('serviceModal')">
+    <div class="modal">
+        <div class="modal-header">
+            <span class="modal-title" id="svcModalTitle">添加推送服务</span>
+            <button class="modal-close" onclick="closeModal('serviceModal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="editSvcId">
+            <div class="form-group">
+                <label>服务名称</label>
+                <input type="text" id="svcName" placeholder="微信推送">
+            </div>
+            <div class="form-group">
+                <label>服务类型</label>
+                <select id="svcType">
+                    <option value="wxpusher">WxPusher 微信</option>
+                    <option value="email">邮件</option>
+                    <option value="telegram">Telegram</option>
+                    <option value="dingtalk">钉钉</option>
+                    <option value="webhook">自定义 WebHook</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>WebHook URL / API 地址</label>
+                <input type="text" id="svcUrl" placeholder="https://...">
+            </div>
+            <div class="form-group">
+                <label>Token / API Key</label>
+                <input type="text" id="svcToken" placeholder="可选">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeModal('serviceModal')">取消</button>
+            <button class="btn btn-primary" onclick="saveService()">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 用户模态框 -->
+<div id="userModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal('userModal')">
+    <div class="modal">
+        <div class="modal-header">
+            <span class="modal-title" id="userModalTitle">添加推送用户</span>
+            <button class="modal-close" onclick="closeModal('userModal')">&times;</button>
+        </div>
+        <div class="modal-body">
+            <input type="hidden" id="editUserId">
+            <div class="form-group">
+                <label>用户名称</label>
+                <input type="text" id="pushUserName" placeholder="小明">
+            </div>
+            <div class="form-group">
+                <label>用户标识 (OpenID / 邮箱 / ChatID)</label>
+                <input type="text" id="pushUserIdentifier" placeholder="wx_xxxxx">
+            </div>
+            <div class="form-group">
+                <label>关键词筛选 (逗号分隔, * 表示全部)</label>
+                <input type="text" id="pushUserKeywords" placeholder="CQ, 紧急" value="*">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeModal('userModal')">取消</button>
+            <button class="btn btn-primary" onclick="saveUser()">保存</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentSvcId = null;
+    let _servicesCache = [];
+
+    async function loadServices() {
+        try {
+            const data = await BSHTApp.get('/api/notify/services');
+            _servicesCache = data.items || [];
+            const tbody = document.getElementById('servicesBody');
+            if (_servicesCache.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="empty-state">暂无推送服务，请添加</td></tr>';
+                return;
+            }
+            tbody.innerHTML = _servicesCache.map(s => `
+            <tr onclick="loadUsers(${s.id}, '${s.name.replace(/'/g, "\\'")}')" style="cursor:pointer">
+                <td><strong>${s.name}</strong></td>
+                <td>${s.type}</td>
+                <td>
+                    <span class="status-badge ${s.enabled ? 'online' : 'offline'}">
+                        ${s.enabled ? '启用' : '禁用'}
+                    </span>
+                </td>
+                <td>${s.user_count || 0} 人</td>
+                <td class="action-btns" onclick="event.stopPropagation()">
+                    <button class="btn-icon" title="编辑" onclick="editService(${s.id})">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                    </button>
+                    <button class="btn-icon btn-icon-danger" title="删除" onclick="deleteService(${s.id},'${s.name.replace(/'/g, "\\'")}')">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+        } catch (e) {
+            document.getElementById('servicesBody').innerHTML =
+                '<tr><td colspan="5" class="empty-state">加载失败</td></tr>';
+        }
+    }
+
+    async function loadUsers(svcId, svcName) {
+        currentSvcId = svcId;
+        document.getElementById('usersPanel').style.display = '';
+        document.getElementById('usersPanelTitle').textContent = svcName + ' - 推送用户';
+        try {
+            const data = await BSHTApp.get(`/api/notify/services/${svcId}/users`);
+            const tbody = document.getElementById('usersBody');
+            if (!data.items || data.items.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="empty-state">暂无用户</td></tr>';
+                return;
+            }
+            tbody.innerHTML = data.items.map(u => `
+            <tr>
+                <td>${u.name}</td>
+                <td class="text-muted">${u.user_identifier}</td>
+                <td>${u.keywords || '*'}</td>
+                <td><span class="status-badge ${u.enabled ? 'online' : 'offline'}">${u.enabled ? '启用' : '禁用'}</span></td>
+                <td class="action-btns">
+                    <button class="btn-icon btn-icon-danger" title="删除" onclick="deleteUser(${u.id})">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+        } catch (e) {
+            document.getElementById('usersBody').innerHTML = '<tr><td colspan="5" class="empty-state">加载失败</td></tr>';
+        }
+    }
+
+    function showAddService() {
+        document.getElementById('editSvcId').value = '';
+        document.getElementById('svcModalTitle').textContent = '添加推送服务';
+        document.getElementById('svcName').value = '';
+        document.getElementById('svcUrl').value = '';
+        document.getElementById('svcToken').value = '';
+        document.getElementById('serviceModal').style.display = 'flex';
+    }
+
+    function editService(id) {
+        const s = _servicesCache.find(svc => svc.id === id);
+        if (!s) return;
+        document.getElementById('editSvcId').value = s.id;
+        document.getElementById('svcModalTitle').textContent = '编辑推送服务';
+        document.getElementById('svcName').value = s.name;
+        document.getElementById('svcType').value = s.type;
+        const cfg = s.config_masked || {};
+        document.getElementById('svcUrl').value = cfg.url || '';
+        document.getElementById('svcToken').value = cfg.token || '';
+        document.getElementById('serviceModal').style.display = 'flex';
+    }
+
+    async function saveService() {
+        const id = document.getElementById('editSvcId').value;
+        const body = {
+            name: document.getElementById('svcName').value.trim(),
+            type: document.getElementById('svcType').value,
+            config: {
+                url: document.getElementById('svcUrl').value.trim(),
+                token: document.getElementById('svcToken').value.trim()
+            }
+        };
+        try {
+            if (id) await BSHTApp.put(`/api/notify/services/${id}`, body);
+            else await BSHTApp.post('/api/notify/services', body);
+            closeModal('serviceModal');
+            loadServices();
+        } catch (e) { alert(e.message); }
+    }
+
+    async function deleteService(id, name) {
+        if (!confirm(`删除推送服务 "${name}" 及其所有用户?`)) return;
+        try { await BSHTApp.del(`/api/notify/services/${id}`); loadServices(); }
+        catch (e) { alert(e.message); }
+    }
+
+    function showAddUser() {
+        if (!currentSvcId) { alert('请先选择一个推送服务'); return; }
+        document.getElementById('editUserId').value = '';
+        document.getElementById('userModalTitle').textContent = '添加推送用户';
+        document.getElementById('pushUserName').value = '';
+        document.getElementById('pushUserIdentifier').value = '';
+        document.getElementById('pushUserKeywords').value = '*';
+        document.getElementById('userModal').style.display = 'flex';
+    }
+
+    async function saveUser() {
+        const body = {
+            name: document.getElementById('pushUserName').value.trim(),
+            user_identifier: document.getElementById('pushUserIdentifier').value.trim(),
+            keywords: document.getElementById('pushUserKeywords').value.trim()
+        };
+        try {
+            await BSHTApp.post(`/api/notify/services/${currentSvcId}/users`, body);
+            closeModal('userModal');
+            loadUsers(currentSvcId, document.getElementById('usersPanelTitle').textContent.replace(' - 推送用户', ''));
+        } catch (e) { alert(e.message); }
+    }
+
+    async function deleteUser(id) {
+        if (!confirm('删除此推送用户?')) return;
+        try {
+            await BSHTApp.del(`/api/notify/users/${id}`);
+            loadUsers(currentSvcId, document.getElementById('usersPanelTitle').textContent.replace(' - 推送用户', ''));
+        } catch (e) { alert(e.message); }
+    }
+
+    async function reloadPusher() {
+        try {
+            const result = await BSHTApp.post('/api/notify/reload');
+            if (result.success) {
+                alert('热更新成功: ' + result.message);
+            } else {
+                alert('热更新失败: ' + result.message);
+            }
+        } catch (e) { alert('热更新失败: ' + e.message); }
+    }
+
+    async function testPusher() {
+        const userId = prompt('请输入用户ID（留空则发送给所有用户）:');
+        try {
+            const body = userId ? { user_id: userId } : {};
+            const result = await BSHTApp.post('/api/notify/test', body);
+            if (result.success) {
+                alert('测试消息发送成功！');
+            } else {
+                alert('测试失败: ' + result.message);
+            }
+        } catch (e) { alert('测试失败: ' + e.message); }
+    }
+
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+    loadServices();
+</script>
+{% endblock %}
