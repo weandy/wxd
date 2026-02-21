@@ -1,17 +1,16 @@
 """
 智能机器人模块
 """
-from .config import get_config, load_env_file, AppConfig, BSHTConfig, APIConfig, DSPConfig, DatabaseConfig
+from .config import get_config, load_env_file, AppConfig, BSHTConfig, APIConfig, DatabaseConfig
 from .database import get_database, AudioRecord, Recording, Database
-from .smart_processor import SmartAudioProcessor, AudioQualityAnalyzer, DSPProcessor, AIClient
+from .smart_processor import SmartAudioProcessor, AudioQualityAnalyzer, AIClient
 
 __all__ = [
     'get_config',
     'load_env_file',
-    'AppConfig', 
+    'AppConfig',
     'BSHTConfig',
-    'APIConfig', 
-    'DSPConfig',
+    'APIConfig',
     'DatabaseConfig',
     'get_database',
     'AudioRecord',
@@ -19,6 +18,5 @@ __all__ = [
     'Database',
     'SmartAudioProcessor',
     'AudioQualityAnalyzer',
-    'DSPProcessor',
     'AIClient'
 ]

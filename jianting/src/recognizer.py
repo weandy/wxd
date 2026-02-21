@@ -30,10 +30,10 @@ logger = _get_logger()
 
 class RecordingRecognizer:
     """录音识别器 - 伪实时处理录音文件，支持并发识别"""
-    
-    def __init__(self, api_key: str, dsp_config: dict = None):
+
+    def __init__(self, api_key: str, expert_model: str = "glm-4-flash"):
         self.api_key = api_key
-        self.dsp_config = dsp_config or {}
+        self.expert_model = expert_model
         self._processor = None
         self._db = None
         self._pusher = None  # 微信推送器
@@ -41,9 +41,9 @@ class RecordingRecognizer:
         self._lock = threading.Lock()
         self._pending_queue = []  # 待识别队列
         self._processing = False
-        
+
         # 并发识别配置
-        max_workers = int(dsp_config.get("max_concurrent_workers", 3)) if dsp_config else 3
+        max_workers = 3
         self._executor = ThreadPoolExecutor(max_workers=max_workers)
         self._active_futures = set()  # 跟踪活跃的识别任务
         logger.info(f"[并发识别] 线程池初始化: {max_workers} 个工作线程")
@@ -84,7 +84,7 @@ class RecordingRecognizer:
             from smart_processor import SmartAudioProcessor
             self._processor = SmartAudioProcessor(
                 api_key=self.api_key,
-                dsp_config=self.dsp_config
+                expert_model=self.expert_model
             )
         return self._processor
     
@@ -252,16 +252,9 @@ class RecordingRecognizer:
                     rms_db=existing.rms_db or 0.0,
                     snr_db=existing.snr_db or 0.0
                 )
-                # 创建假的 suggestion 对象
-                @dataclass
-                class DSPSuggestion:
-                    needed: bool = False
-                    level: str = "none"
-                suggestion = DSPSuggestion()
-
-                self._print_result(ai_result, quality, suggestion, user_name, recorder_type, 
-                                  existing.asr_text or "", existing.recognize_duration or 0, 
-                                  start_time, self.dsp_config.get("expert_model", "N/A"),
+                self._print_result(ai_result, quality, user_name, recorder_type,
+                                  existing.asr_text or "", existing.recognize_duration or 0,
+                                  start_time, self.expert_model,
                                   duration=duration, lost_frames=lost_frames, loss_rate=loss_rate)
                 logger.info(f"[缓存] 识别完成: {os.path.basename(filepath)} (from cache)")
                 return
@@ -291,18 +284,18 @@ class RecordingRecognizer:
             start_time_recognize = time.time()
             
             processor = self._get_processor()
-            ai_result, quality, suggestion = processor.process(filepath)
+            ai_result, quality = processor.process(filepath)
             
             recognize_duration = time.time() - start_time_recognize
             
             # 获取使用的专家模型
-            expert_model = self.dsp_config.get("expert_model", "Qwen/Qwen2.5-7B-Instruct")
-            
+            expert_model = self.expert_model
+
             # 保存原始ASR结果用于显示
             asr_raw = ai_result.content
-            
+
             # 打印识别结果
-            self._print_result(ai_result, quality, suggestion, user_name, recorder_type, 
+            self._print_result(ai_result, quality, user_name, recorder_type,
                              asr_raw, recognize_duration, start_time, expert_model,
                              duration=duration, lost_frames=lost_frames, loss_rate=loss_rate)
             
@@ -384,7 +377,7 @@ class RecordingRecognizer:
             logger.warning(f"[推送] 推送失败: {e}")
             logger.info(f"   📲 微信推送: ❌ 推送失败 - {e}")
     
-    def _print_result(self, ai_result, quality, suggestion, user_name, recorder_type,
+    def _print_result(self, ai_result, quality, user_name, recorder_type,
                      asr_raw="", recognize_duration=0.0, start_time="", expert_model="",
                      duration=0.0, lost_frames=0, loss_rate=0.0):
         """打印识别结果到控制台"""
@@ -409,9 +402,6 @@ class RecordingRecognizer:
         if recognize_duration > 0:
             logger.info(f"   ⏱️ 识别耗时: {recognize_duration:.2f}s")
 
-        # DSP处理
-        logger.info(f"   🔊 DSP: {'是' if suggestion.needed else '否'} ({suggestion.level})")
-        
         # 原始识别结果
         if ai_result.sensevoice_content:
             logger.info(f"   🎤 识别: {ai_result.sensevoice_content}")

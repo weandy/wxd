@@ -1,27 +1,22 @@
 """
-智能音频处理模块 - 集成DSP和AI识别
+智能音频处理模块 - 集成AI识别
 高内聚低耦合设计
 
 功能:
 1. 音频质量分析 (SNR检测)
-2. 智能DSP处理决策
-3. AI语音识别 (ASR)
-4. 专家分析 (Qwen3)
+2. AI语音识别 (ASR)
+3. 专家分析 (Qwen3)
 """
 import os
-import sys
 import json
 import wave
-import tempfile
 import shutil
-import threading
 import logging
 import time
 import numpy as np
 from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass
 from functools import wraps
-import logging
 
 # 延迟导入日志配置，避免相对导入问题
 def _get_logger():
@@ -94,11 +89,6 @@ def retry_on_error(max_attempts: int = 3, backoff: float = 1.0,
 
 # 路径配置
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DSP_TEST_DIR = os.path.join(os.path.dirname(SCRIPT_DIR), "dsp_test")
-
-# 添加DSP测试目录到路径
-if DSP_TEST_DIR not in sys.path:
-    sys.path.insert(0, DSP_TEST_DIR)
 
 
 @dataclass
@@ -114,16 +104,6 @@ class AudioQuality:
 
 
 @dataclass
-class DSPSuggestion:
-    """DSP处理建议"""
-    needed: bool
-    reason: str
-    level: str  # LOW, MEDIUM, HIGH, VERY_HIGH
-    algorithm: str
-    confidence: float
-
-
-@dataclass
 class AIResult:
     """AI识别结果"""
     success: bool
@@ -136,9 +116,6 @@ class AIResult:
     error: str = ""
     sensevoice_content: str = ""  # SenseVoice原始结果
     expert_content: str = ""  # Qwen专家模型原始结果
-    # 对比模式字段
-    original_content: str = ""  # 原始音频识别结果（对比模式）
-    processed_content: str = ""  # 降噪后识别结果
 
 
 class AudioQualityAnalyzer:
@@ -218,154 +195,6 @@ class AudioQualityAnalyzer:
         except Exception as e:
             print(f"音频分析错误: {e}")
             return None
-    
-    @staticmethod
-    def suggest_dsp(quality: AudioQuality,
-                   always_on: bool = True,
-                   min_rms_db: float = -50.0,
-                   min_duration: float = 0.3) -> DSPSuggestion:
-        """
-        根据音频质量建议DSP处理
-
-        Args:
-            quality: 音频质量分析结果
-            always_on: 是否始终启用 DSP（默认 True，全部降噪）
-            min_rms_db: 最小音频电平阈值（默认 -50dB）
-            min_duration: 最小音频时长阈值（默认 0.3秒）
-        """
-        # 统一使用 timedomain + webrtc AGC
-
-        # 判断音频是否有效
-        is_valid = quality.rms_db > min_rms_db and quality.duration > min_duration
-
-        if not is_valid:
-            return DSPSuggestion(
-                needed=False,
-                reason=f"音频无效（电平: {quality.rms_db:.1f}dB, 时长: {quality.duration:.1f}s），跳过处理",
-                level="INVALID",
-                algorithm="none",
-                confidence=0.99
-            )
-
-        if always_on:
-            return DSPSuggestion(
-                needed=True,
-                reason=f"DSP处理: timedomain + webrtc AGC（电平: {quality.rms_db:.1f}dB, SNR: {quality.snr_db:.1f}dB）",
-                level="ON",
-                algorithm="timedomain",
-                confidence=0.95
-            )
-        else:
-            snr = quality.snr_db
-            if snr > 20:
-                return DSPSuggestion(
-                    needed=False,
-                    reason=f"信噪比很高 ({snr:.1f}dB)，跳过处理",
-                    level="LOW",
-                    algorithm="none",
-                    confidence=0.95
-                )
-            else:
-                return DSPSuggestion(
-                    needed=True,
-                    reason=f"信噪比比较低 ({snr:.1f}dB)，DSP降噪",
-                    level="MEDIUM",
-                    algorithm="timedomain",
-                    confidence=0.85
-                )
-
-
-class DSPProcessor:
-    """DSP处理器"""
-    
-    _chain = None
-    _lock = threading.Lock()
-    
-    def __init__(self, algorithm: str = "timedomain", agc_mode: str = "webrtc"):
-        self.algorithm = algorithm
-        self.agc_mode = agc_mode
-    
-    def _get_chain(self):
-        """获取DSP处理链 (延迟初始化)"""
-        if DSPProcessor._chain is None:
-            with DSPProcessor._lock:
-                if DSPProcessor._chain is None:
-                    try:
-                        from dsp_chain import AudioDSPChain
-                        DSPProcessor._chain = AudioDSPChain(
-                            sample_rate=48000,
-                            frame_size=960,
-                            vad_enabled=False,
-                            noise_reduction_algorithm=self.algorithm,
-                            agc_mode=self.agc_mode
-                        )
-                    except Exception as e:
-                        print(f"DSP链初始化失败: {e}")
-                        return None
-        return DSPProcessor._chain
-    
-    def process(self, input_path: str, output_path: str) -> Tuple[bool, str]:
-        """处理音频文件"""
-        chain = self._get_chain()
-        if chain is None:
-            return False, "DSP处理链未初始化"
-        
-        try:
-            # 读取音频
-            with wave.open(input_path, 'rb') as wf:
-                params = wf.getparams()
-                frames = wf.readframes(params.nframes)
-            
-            if params.sampwidth == 2:
-                audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
-            else:
-                audio = np.frombuffer(frames, dtype=np.float32)
-            
-            if params.nchannels > 1:
-                audio = audio.reshape(-1, params.nchannels).mean(axis=1)
-            
-            # 处理
-            processed = chain.process_audio(audio)
-            
-            # 转换回16位
-            processed = np.clip(processed, -1.0, 1.0)
-            processed_int = (processed * 32767).astype(np.int16)
-            
-            # 写入
-            with wave.open(output_path, 'wb') as wf:
-                wf.setparams((1, 2, params.framerate, len(processed_int), 'NONE', ''))
-                wf.writeframes(processed_int.tobytes())
-            
-            return True, "处理成功"
-        except Exception as e:
-            return False, str(e)
-    
-    @staticmethod
-    def convert_to_mono(input_path: str, output_path: str) -> bool:
-        """转换为单声道"""
-        try:
-            with wave.open(input_path, 'rb') as wf:
-                params = wf.getparams()
-                frames = wf.readframes(params.nframes)
-            
-            if params.sampwidth == 2:
-                audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
-            else:
-                audio = np.frombuffer(frames, dtype=np.float32)
-            
-            if params.nchannels > 1:
-                audio = audio.reshape(-1, params.nchannels).mean(axis=1)
-            
-            audio_int = (audio * 32767).astype(np.int16)
-            
-            with wave.open(output_path, 'wb') as wf:
-                wf.setparams((1, 2, params.framerate, len(audio_int), 'NONE', ''))
-                wf.writeframes(audio_int.tobytes())
-            
-            return True
-        except Exception as e:
-            print(f"转换失败: {e}")
-            return False
 
 
 class AIClient:
@@ -979,166 +808,68 @@ ASR识别结果: "{asr_text}"
 
 class SmartAudioProcessor:
     """智能音频处理器 - 整合所有功能"""
-    
-    def __init__(self, api_key: str, dsp_config: Dict[str, Any] = None):
+
+    def __init__(self, api_key: str, expert_model: str = "glm-4-flash"):
         self.api_key = api_key
-        self.dsp_config = dsp_config or {}
-        
         # 初始化组件
         self.analyzer = AudioQualityAnalyzer()
-        self.dsp = DSPProcessor(
-            algorithm=self.dsp_config.get("algorithm", "timedomain"),
-            agc_mode=self.dsp_config.get("agc_mode", "webrtc")
-        )
-
         # 专家模型配置
-        expert_model = self.dsp_config.get("expert_model", "glm-4-flash")
         self.ai = AIClient(api_key, expert_model=expert_model)
 
-        # DSP 配置参数（从环境变量读取）
-        self.min_rms_db = self.dsp_config.get("min_rms_db", -50.0)
-        self.min_duration = self.dsp_config.get("min_duration", 0.3)
-        self.dsp_always_on = self.dsp_config.get("dsp_always_on", True)
-        self.dual_mode = self.dsp_config.get("dual_mode", False)  # 对比模式
-    
-    def process(self, audio_path: str, keep_temp: bool = False) -> Tuple[AIResult, AudioQuality, DSPSuggestion]:
+    def process(self, audio_path: str) -> Tuple[AIResult, AudioQuality]:
         """
         智能处理音频
-        
+
         Returns:
-            (AIResult, AudioQuality, DSPSuggestion)
+            (AIResult, AudioQuality)
         """
-        temp_dir = tempfile.mkdtemp()
-        
-        try:
-            # 1. 分析原始音频质量
-            quality = self.analyzer.analyze(audio_path)
-            if quality is None:
-                return (
-                    AIResult(success=False, signal_type="UNKNOWN", content="",
-                            content_normalized="", user_id="", signal_quality="",
-                            confidence=0.0, error="音频分析失败"),
-                    AudioQuality(0, 0, 0, 0, 0, 0, 0),
-                    DSPSuggestion(False, "", "LOW", "", 0)
-                )
-            
-            # 2. 判断是否需要DSP
-            suggestion = self.analyzer.suggest_dsp(
-                quality,
-                self.dsp_always_on,
-                self.min_rms_db,
-                self.min_duration
+        # 1. 分析原始音频质量
+        quality = self.analyzer.analyze(audio_path)
+        if quality is None:
+            return (
+                AIResult(success=False, signal_type="UNKNOWN", content="",
+                        content_normalized="", user_id="", signal_quality="",
+                        confidence=0.0, error="音频分析失败"),
+                AudioQuality(0, 0, 0, 0, 0, 0, 0)
             )
-            
-            # 3. 准备音频文件
-            temp_original = os.path.join(temp_dir, "original.wav")
-            temp_processed = os.path.join(temp_dir, "processed.wav")
-            
-            if not self.dsp.convert_to_mono(audio_path, temp_original):
-                return (
-                    AIResult(success=False, signal_type="UNKNOWN", content="",
-                            content_normalized="", user_id="", signal_quality="",
-                            confidence=0.0, error="音频转换失败"),
-                    quality,
-                    suggestion
-                )
-            
-            # 4. DSP处理 (如果需要)
-            use_processed = False
-            if suggestion.needed:
-                success, msg = self.dsp.process(temp_original, temp_processed)
-                if success:
-                    use_processed = True
 
-            # 5. 选择要使用的音频
-            audio_to_use = temp_processed if use_processed else temp_original
+        # 2. 使用SenseVoice进行语音识别
+        logger.info("[识别] 调用 SenseVoice 语音识别...")
 
-            # 6. 对比模式：同时识别原始音频和降噪音频
-            original_text = ""
-            processed_text = ""
-
-            if self.dual_mode and suggestion.needed:
-                # 对比模式：分别识别原始和降噪音频
-                logger.info("[识别] 对比模式：识别原始音频...")
-                orig_success, orig_text = self.ai.call_asr(temp_original)
-                if orig_success and orig_text:
-                    original_text = orig_text
-                    logger.info(f"[识别] 原始音频结果: {orig_text[:50]}...")
-                else:
-                    logger.warning(f"[识别] 原始音频识别失败: {orig_text}")
-
-                logger.info("[识别] 对比模式：识别降噪音频...")
-                proc_success, proc_text = self.ai.call_asr(temp_processed)
-                if proc_success and proc_text:
-                    processed_text = proc_text
-                    logger.info(f"[识别] 降噪音频结果: {proc_text[:50]}...")
-                else:
-                    logger.warning(f"[识别] 降噪音频识别失败: {proc_text}")
-
-                # 使用降噪结果作为主结果
-                audio_to_use = temp_processed
-                use_processed = True
-
-            # 7. 使用SenseVoice进行语音识别（普通模式或对比模式的最终结果）
-            logger.info("[识别] 调用 SenseVoice 语音识别...")
-
-            sensevoice_success, sensevoice_text = self.ai.call_asr(audio_to_use)
-            if sensevoice_success and sensevoice_text:
-                logger.info(f"[识别] SenseVoice结果: {sensevoice_text[:100]}...")
-            else:
-                logger.warning(f"[识别] SenseVoice失败: {sensevoice_text}")
-                return (
-                    AIResult(success=False, signal_type="UNKNOWN", content="",
-                            content_normalized="", user_id="", signal_quality="",
-                            confidence=0.0, error="语音识别失败"),
-                    quality,
-                    suggestion
-                )
-
-            # 8. 本地规则纠错
-            logger.info("[识别] 应用本地规则纠错...")
-            
-            corrected_text = self.ai._apply_correction_rules(sensevoice_text)
-            
-            # 提取呼号
-            user_id = self.ai._extract_callsign(corrected_text)
-            
-            # 判断信号类型
-            signal_type = self.ai._detect_signal_type(corrected_text)
-            
-            # 使用纠错后的文本
-            ai_result = AIResult(
-                success=True,
-                signal_type=signal_type,
-                content=sensevoice_text,
-                content_normalized=corrected_text,
-                user_id=user_id,
-                signal_quality="5",
-                confidence=0.5,
-                sensevoice_content=sensevoice_text,
-                expert_content="",
-                original_content=original_text,
-                processed_content=processed_text
+        sensevoice_success, sensevoice_text = self.ai.call_asr(audio_path)
+        if sensevoice_success and sensevoice_text:
+            logger.info(f"[识别] SenseVoice结果: {sensevoice_text[:100]}...")
+        else:
+            logger.warning(f"[识别] SenseVoice失败: {sensevoice_text}")
+            return (
+                AIResult(success=False, signal_type="UNKNOWN", content="",
+                        content_normalized="", user_id="", signal_quality="",
+                        confidence=0.0, error="语音识别失败"),
+                quality
             )
-            
-            # 8. 分析处理后质量
-            if use_processed:
-                proc_quality = self.analyzer.analyze(temp_processed)
-                if proc_quality:
-                    suggestion = DSPSuggestion(
-                        needed=suggestion.needed,
-                        reason=f"处理前SNR: {quality.snr_db:.1f}dB, 处理后SNR: {proc_quality.snr_db:.1f}dB",
-                        level=suggestion.level,
-                        algorithm=suggestion.algorithm,
-                        confidence=suggestion.confidence
-                    )
-            
-            return ai_result, quality, suggestion
-            
-        finally:
-            # 清理临时文件
-            if not keep_temp:
-                try:
-                    shutil.rmtree(temp_dir)
-                except:
-                    pass
+
+        # 3. 本地规则纠错
+        logger.info("[识别] 应用本地规则纠错...")
+
+        corrected_text = self.ai._apply_correction_rules(sensevoice_text)
+
+        # 提取呼号
+        user_id = self.ai._extract_callsign(corrected_text)
+
+        # 判断信号类型
+        signal_type = self.ai._detect_signal_type(corrected_text)
+
+        # 使用纠错后的文本
+        ai_result = AIResult(
+            success=True,
+            signal_type=signal_type,
+            content=sensevoice_text,
+            content_normalized=corrected_text,
+            user_id=user_id,
+            signal_quality="5",
+            confidence=0.5,
+            sensevoice_content=sensevoice_text,
+            expert_content=""
+        )
+
+        return ai_result, quality

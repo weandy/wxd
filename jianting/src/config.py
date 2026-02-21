@@ -54,22 +54,6 @@ class APIConfig:
 
 
 @dataclass
-class DSPConfig:
-    """DSP处理配置"""
-    enabled: bool = True
-    algorithm: str = "timedomain"  # 统一使用 timedomain
-    agc_mode: str = "webrtc"       # 统一使用 webrtc AGC
-    vad_enabled: bool = False
-    # 有效性判断阈值
-    min_rms_db: float = -50.0      # 最小音频电平 (dB)
-    min_duration: float = 0.3       # 最小音频时长 (秒)
-    # 是否始终启用 DSP（默认开启，全部降噪）
-    dsp_always_on: bool = True
-    # 对比模式：同时对原始音频和降噪音频进行识别
-    dual_mode: bool = False
-
-
-@dataclass
 class DatabaseConfig:
     """数据库配置"""
     path: str = "data/records.db"
@@ -81,7 +65,6 @@ class AppConfig:
     """应用完整配置"""
     bsht: BSHTConfig
     api: APIConfig
-    dsp: DSPConfig
     database: DatabaseConfig
     
     @classmethod
@@ -113,25 +96,13 @@ class AppConfig:
             expert_model=os.getenv("EXPERT_MODEL", "glm-4-flash")
         )
         
-        # DSP配置
-        dsp = DSPConfig(
-            enabled=os.getenv("DSP_ENABLED", "true").lower() == "true",
-            algorithm="timedomain",  # 固定使用 timedomain
-            agc_mode="webrtc",      # 固定使用 webrtc AGC
-            vad_enabled=os.getenv("DSP_VAD_ENABLED", "false").lower() == "true",
-            min_rms_db=float(os.getenv("DSP_MIN_RMS_DB", "-50.0")),    # 最小音频电平
-            min_duration=float(os.getenv("DSP_MIN_DURATION", "0.3")),    # 最小音频时长
-            dsp_always_on=os.getenv("DSP_ALWAYS_ON", "true").lower() == "true",  # 是否始终启用DSP
-            dual_mode=os.getenv("DSP_DUAL_MODE", "false").lower() == "true"  # 对比模式
-        )
-        
         # 数据库配置
         database = DatabaseConfig(
             path=os.getenv("DATABASE_PATH", "data/records.db"),
             max_records=_get_int("DATABASE_MAX_RECORDS", 10000)
         )
         
-        return cls(bsht=bsht, api=api, dsp=dsp, database=database)
+        return cls(bsht=bsht, api=api, database=database)
     
     def validate(self) -> tuple[bool, str]:
         """验证配置完整性"""
@@ -139,8 +110,6 @@ class AppConfig:
             return False, "BSHT账号密码未配置"
         if self.bsht.channel_id <= 0:
             return False, "频道ID未配置"
-        if self.dsp.enabled and not self.api.siliconflow_key:
-            return False, "DSP启用时需要配置API Key"
         return True, "配置完整"
 
 

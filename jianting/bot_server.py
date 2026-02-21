@@ -790,20 +790,12 @@ if __name__ == "__main__":
         
         print(f"📋 配置加载: 用户={USERNAME}, 频道={CHANNEL_ID}")
         
-        if config.dsp.enabled and config.api.siliconflow_key:
+        if config.api.siliconflow_key:
             # 创建识别器
             from src.recognizer import RecordingRecognizer
             recognizer = RecordingRecognizer(
                 api_key=config.api.siliconflow_key,
-                dsp_config={
-                    "algorithm": config.dsp.algorithm,
-                    "agc_mode": config.dsp.agc_mode,
-                    "min_rms_db": config.dsp.min_rms_db,
-                    "min_duration": config.dsp.min_duration,
-                    "dsp_always_on": config.dsp.dsp_always_on,
-                    "dual_mode": config.dsp.dual_mode,
-                    "expert_model": config.api.expert_model if config.api.expert_model_enabled else "glm-4-flash"
-                }
+                expert_model=config.api.expert_model if config.api.expert_model_enabled else "glm-4-flash"
             )
             
             # 伪实时识别已启用
@@ -851,7 +843,7 @@ if __name__ == "__main__":
             
             print("✅ 识别器已集成到 bot_server")
         else:
-            print("⚠️  DSP未启用或API Key未配置，只录制不识别")
+            print("⚠️  API Key未配置，只录制不识别")
             recording_callback = None
     except Exception as e:
         print(f"⚠️  识别器初始化失败: {e}")
