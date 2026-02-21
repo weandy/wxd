@@ -14,6 +14,7 @@
 - DSP_MIN_RMS_DB: 最小音频电平 (dB, 默认-50)
 - DSP_MIN_DURATION: 最小音频时长 (秒, 默认0.3)
 - DSP_ALWAYS_ON: 是否始终启用DSP (true/false, 默认true)
+- DSP_DUAL_MODE: 对比模式，同时识别原始和降噪音频 (true/false, 默认false)
 
 - DATABASE_PATH: 数据库路径(默认data/records.db)
 - DATABASE_MAX_RECORDS: 最大记录数(默认10000)

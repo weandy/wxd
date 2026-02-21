@@ -68,6 +68,8 @@ class DSPConfig:
     min_duration: float = 0.3       # 最小音频时长 (秒)
     # 是否始终启用 DSP（默认开启，全部降噪）
     dsp_always_on: bool = True
+    # 对比模式：同时对原始音频和降噪音频进行识别
+    dual_mode: bool = False
 
 
 @dataclass
@@ -124,7 +126,8 @@ class AppConfig:
             vad_enabled=os.getenv("DSP_VAD_ENABLED", "false").lower() == "true",
             min_rms_db=float(os.getenv("DSP_MIN_RMS_DB", "-50.0")),    # 最小音频电平
             min_duration=float(os.getenv("DSP_MIN_DURATION", "0.3")),    # 最小音频时长
-            dsp_always_on=os.getenv("DSP_ALWAYS_ON", "true").lower() == "true"  # 是否始终启用DSP
+            dsp_always_on=os.getenv("DSP_ALWAYS_ON", "true").lower() == "true",  # 是否始终启用DSP
+            dual_mode=os.getenv("DSP_DUAL_MODE", "false").lower() == "true"  # 对比模式
         )
         
         # 数据库配置

@@ -136,6 +136,9 @@ class AIResult:
     error: str = ""
     sensevoice_content: str = ""  # SenseVoice原始结果
     expert_content: str = ""  # Qwen专家模型原始结果
+    # 对比模式字段
+    original_content: str = ""  # 原始音频识别结果（对比模式）
+    processed_content: str = ""  # 降噪后识别结果
 
 
 class AudioQualityAnalyzer:
@@ -1004,6 +1007,7 @@ class SmartAudioProcessor:
         self.min_rms_db = self.dsp_config.get("min_rms_db", -50.0)
         self.min_duration = self.dsp_config.get("min_duration", 0.3)
         self.dsp_always_on = self.dsp_config.get("dsp_always_on", True)
+        self.dual_mode = self.dsp_config.get("dual_mode", False)  # 对比模式
     
     def process(self, audio_path: str, keep_temp: bool = False) -> Tuple[AIResult, AudioQuality, DSPSuggestion]:
         """
@@ -1053,15 +1057,39 @@ class SmartAudioProcessor:
                 success, msg = self.dsp.process(temp_original, temp_processed)
                 if success:
                     use_processed = True
-            
+
             # 5. 选择要使用的音频
             audio_to_use = temp_processed if use_processed else temp_original
-            
-            # 6. 使用SenseVoice进行语音识别，然后用GLM进行语义分析和修正
-            
-            # 6.1 调用SenseVoice识别
+
+            # 6. 对比模式：同时识别原始音频和降噪音频
+            original_text = ""
+            processed_text = ""
+
+            if self.dual_mode and suggestion.needed:
+                # 对比模式：分别识别原始和降噪音频
+                logger.info("[识别] 对比模式：识别原始音频...")
+                orig_success, orig_text = self.ai.call_asr(temp_original)
+                if orig_success and orig_text:
+                    original_text = orig_text
+                    logger.info(f"[识别] 原始音频结果: {orig_text[:50]}...")
+                else:
+                    logger.warning(f"[识别] 原始音频识别失败: {orig_text}")
+
+                logger.info("[识别] 对比模式：识别降噪音频...")
+                proc_success, proc_text = self.ai.call_asr(temp_processed)
+                if proc_success and proc_text:
+                    processed_text = proc_text
+                    logger.info(f"[识别] 降噪音频结果: {proc_text[:50]}...")
+                else:
+                    logger.warning(f"[识别] 降噪音频识别失败: {proc_text}")
+
+                # 使用降噪结果作为主结果
+                audio_to_use = temp_processed
+                use_processed = True
+
+            # 7. 使用SenseVoice进行语音识别（普通模式或对比模式的最终结果）
             logger.info("[识别] 调用 SenseVoice 语音识别...")
-            
+
             sensevoice_success, sensevoice_text = self.ai.call_asr(audio_to_use)
             if sensevoice_success and sensevoice_text:
                 logger.info(f"[识别] SenseVoice结果: {sensevoice_text[:100]}...")
@@ -1074,8 +1102,8 @@ class SmartAudioProcessor:
                     quality,
                     suggestion
                 )
-            
-            # 6.2 本地规则纠错（不使用GLM）
+
+            # 8. 本地规则纠错
             logger.info("[识别] 应用本地规则纠错...")
             
             corrected_text = self.ai._apply_correction_rules(sensevoice_text)
@@ -1096,7 +1124,9 @@ class SmartAudioProcessor:
                 signal_quality="5",
                 confidence=0.5,
                 sensevoice_content=sensevoice_text,
-                expert_content=""
+                expert_content="",
+                original_content=original_text,
+                processed_content=processed_text
             )
             
             # 8. 分析处理后质量
