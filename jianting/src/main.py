@@ -10,11 +10,10 @@
 - SILICONFLOW_API_KEY: SiliconFlow API密钥
 - SILICONFLOW_BASE_URL: API地址(可选)
 
-- DSP_ENABLED: 是否启用DSP (true/false)
-- DSP_ALGORITHM: 降噪算法 (timedomain/spectral/wiener/rnnoise)
-- DSP_AGC_MODE: AGC模式 (simple/webrtc)
-- DSP_SNR_THRESHOLD_HIGH: SNR高阈值(默认20)
-- DSP_SNR_THRESHOLD_LOW: SNR低阈值(默认10)
+- DSP_ENABLED: 是否启用DSP (true/false, 默认true)
+- DSP_MIN_RMS_DB: 最小音频电平 (dB, 默认-50)
+- DSP_MIN_DURATION: 最小音频时长 (秒, 默认0.3)
+- DSP_ALWAYS_ON: 是否始终启用DSP (true/false, 默认true)
 
 - DATABASE_PATH: 数据库路径(默认data/records.db)
 - DATABASE_MAX_RECORDS: 最大记录数(默认10000)
