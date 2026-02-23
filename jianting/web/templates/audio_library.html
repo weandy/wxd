@@ -1,0 +1,536 @@
+{% extends "layout.html" %}
+{% set active_page = 'audio_library' %}
+
+{% block title %}音频库 - BSHT Bot{% endblock %}
+{% block page_title %}音频库{% endblock %}
+
+{% block page_actions %}
+<div class="tab-actions">
+    <button class="btn btn-sm" id="tabTts" onclick="switchTab('tts')">TTS生成</button>
+    <button class="btn btn-sm" id="tabRecord" onclick="switchTab('record')">录音存储</button>
+    <button class="btn btn-sm" id="tabUpload" onclick="switchTab('upload')">上传音频</button>
+</div>
+{% endblock %}
+
+{% block page_content %}
+<div id="errorMsg" class="error-message" style="display:none"></div>
+
+<!-- TTS 生成面板 -->
+<div id="ttsPanel" class="audio-panel" style="display:none">
+    <div class="panel-header">
+        <h3>TTS 语音合成</h3>
+    </div>
+    <div class="panel-body">
+        <div class="form-group">
+            <label>文本内容</label>
+            <textarea id="ttsText" rows="4" placeholder="请输入要合成的文本..."></textarea>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>声音选择</label>
+                <select id="ttsVoice"></select>
+            </div>
+            <div class="form-group">
+                <label>语速</label>
+                <input type="number" id="ttsSpeed" value="1.0" min="0.5" max="2.0" step="0.1">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>音频名称 (可留空，自动使用文本前50字)</label>
+            <input type="text" id="ttsName" placeholder="CQ 呼叫">
+        </div>
+        <div class="btn-group">
+            <button class="btn btn-secondary" onclick="previewTts()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                试听
+            </button>
+            <button class="btn btn-primary" onclick="saveTts()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                保存到音频库
+            </button>
+        </div>
+        <div id="ttsPreview" class="preview-container" style="display:none">
+            <label>试听预览</label>
+            <audio id="ttsAudioPlayer" controls></audio>
+        </div>
+    </div>
+</div>
+
+<!-- 录音面板 -->
+<div id="recordPanel" class="audio-panel" style="display:none">
+    <div class="panel-header">
+        <h3>手动录音</h3>
+    </div>
+    <div class="panel-body">
+        <div class="record-controls">
+            <button id="recordBtn" class="btn btn-danger" onclick="startRecording()">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
+                开始录音
+            </button>
+            <button id="stopRecordBtn" class="btn btn-secondary" onclick="stopRecording()" style="display:none">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12"/></svg>
+                停止录音
+            </button>
+            <span id="recordStatus" class="record-status"></span>
+        </div>
+        <div id="recordWaveform" class="waveform-container">
+            <canvas id="waveCanvas"></canvas>
+        </div>
+        <div id="recordPreview" class="preview-container" style="display:none">
+            <label>录音预览</label>
+            <audio id="recordAudioPlayer" controls></audio>
+            <div class="form-group">
+                <label>音频名称</label>
+                <input type="text" id="recordName" placeholder="录音">
+            </div>
+            <button class="btn btn-primary" onclick="saveRecord()">保存到音频库</button>
+        </div>
+    </div>
+</div>
+
+<!-- 上传面板 -->
+<div id="uploadPanel" class="audio-panel">
+    <div class="panel-header">
+        <h3>上传音频文件</h3>
+    </div>
+    <div class="panel-body">
+        <div class="form-group">
+            <label>音频名称 (可留空，自动使用文件名)</label>
+            <input type="text" id="audioName" placeholder="CQ 呼叫">
+        </div>
+        <div class="form-group">
+            <label>选择文件 (WAV/MP3/OGG/Opus, 最大10MB)</label>
+            <input type="file" id="audioFile" accept=".wav,.mp3,.ogg,.opus"
+                style="width:100%;padding:10px;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-primary)">
+        </div>
+        <button class="btn btn-primary" onclick="uploadAudio()">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+            上传
+        </button>
+    </div>
+</div>
+
+<!-- 音频列表 -->
+<div class="table-container">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>音频名称</th>
+                <th>文件名</th>
+                <th>来源</th>
+                <th>时长</th>
+                <th>大小</th>
+                <th>使用次数</th>
+                <th>上传者</th>
+                <th>上传时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody id="audioTableBody">
+            <tr>
+                <td colspan="9" class="empty-state">加载中...</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<style>
+.tab-actions {
+    display: flex;
+    gap: 8px;
+}
+.tab-actions .btn.active {
+    background: var(--primary);
+    color: white;
+}
+.audio-panel {
+    background: var(--bg-secondary);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 20px;
+}
+.panel-header h3 {
+    margin: 0 0 16px 0;
+    font-size: 16px;
+    color: var(--text-primary);
+}
+.form-row {
+    display: flex;
+    gap: 16px;
+}
+.form-row .form-group {
+    flex: 1;
+}
+.btn-group {
+    display: flex;
+    gap: 12px;
+    margin-top: 16px;
+}
+.preview-container {
+    margin-top: 16px;
+    padding: 16px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius);
+}
+.preview-container label {
+    display: block;
+    margin-bottom: 8px;
+    color: var(--text-secondary);
+}
+.preview-container audio {
+    width: 100%;
+}
+.record-controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+.record-status {
+    color: var(--text-secondary);
+}
+.waveform-container {
+    background: var(--bg-tertiary);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 16px;
+}
+.waveform-container canvas {
+    width: 100%;
+    height: 80px;
+}
+.source-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+.source-badge.upload { background: var(--bg-tertiary); color: var(--text-secondary); }
+.source-badge.tts { background: #e6f7ff; color: #1890ff; }
+.source-badge.record { background: #f6ffed; color: #52c41a; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentTab = 'upload';
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let recordedBlob = null;
+    let audioContext = null;
+    let analyser = null;
+    let animationId = null;
+
+    // Tab 切换
+    function switchTab(tab) {
+        currentTab = tab;
+        document.querySelectorAll('.tab-actions .btn').forEach(btn => btn.classList.remove('active'));
+        document.getElementById('tab' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
+
+        document.getElementById('ttsPanel').style.display = tab === 'tts' ? 'block' : 'none';
+        document.getElementById('recordPanel').style.display = tab === 'record' ? 'block' : 'none';
+        document.getElementById('uploadPanel').style.display = tab === 'upload' ? 'block' : 'none';
+    }
+
+    // 加载声音列表
+    async function loadVoices() {
+        try {
+            const data = await BSHTApp.get('/api/audio-library/voices');
+            const select = document.getElementById('ttsVoice');
+            select.innerHTML = data.voices.map(v =>
+                `<option value="${v.id}" ${v.id === data.default_voice ? 'selected' : ''}>${v.name}</option>`
+            ).join('');
+            document.getElementById('ttsSpeed').value = data.default_speed;
+        } catch (e) {
+            console.error('加载声音列表失败:', e);
+        }
+    }
+
+    // TTS 试听
+    async function previewTts() {
+        const text = document.getElementById('ttsText').value.trim();
+        if (!text) { alert('请输入文本'); return; }
+
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = '合成中...';
+
+        try {
+            const voice = document.getElementById('ttsVoice').value;
+            const speed = parseFloat(document.getElementById('ttsSpeed').value);
+
+            const data = await BSHTApp.post('/api/audio-library/preview', {
+                text, voice, speed
+            });
+
+            const audio = document.getElementById('ttsAudioPlayer');
+            audio.src = 'data:audio/wav;base64,' + data.audio;
+            document.getElementById('ttsPreview').style.display = 'block';
+            audio.play();
+        } catch (e) {
+            alert('试听失败: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> 试听';
+        }
+    }
+
+    // TTS 保存
+    async function saveTts() {
+        const text = document.getElementById('ttsText').value.trim();
+        if (!text) { alert('请输入文本'); return; }
+
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = '生成中...';
+
+        try {
+            const voice = document.getElementById('ttsVoice').value;
+            const speed = parseFloat(document.getElementById('ttsSpeed').value);
+            const name = document.getElementById('ttsName').value.trim();
+
+            const data = await BSHTApp.post('/api/audio-library/tts', {
+                text, voice, speed, name
+            });
+
+            alert('保存成功!');
+            document.getElementById('ttsText').value = '';
+            document.getElementById('ttsName').value = '';
+            document.getElementById('ttsPreview').style.display = 'none';
+            loadAudioList();
+        } catch (e) {
+            alert('保存失败: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> 保存到音频库';
+        }
+    }
+
+    // 录音
+    async function startRecording() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            audioChunks = [];
+
+            // 设置音频可视化
+            audioContext = new AudioContext();
+            analyser = audioContext.createAnalyser();
+            const source = audioContext.createMediaStreamSource(stream);
+            source.connect(analyser);
+            analyser.fftSize = 256;
+            drawWaveform();
+
+            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+            mediaRecorder.onstop = () => {
+                recordedBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                const audio = document.getElementById('recordAudioPlayer');
+                audio.src = URL.createObjectURL(recordedBlob);
+                document.getElementById('recordPreview').style.display = 'block';
+
+                // 停止所有轨道
+                stream.getTracks().forEach(track => track.stop());
+                if (animationId) cancelAnimationFrame(animationId);
+            };
+
+            mediaRecorder.start();
+            document.getElementById('recordBtn').style.display = 'none';
+            document.getElementById('stopRecordBtn').style.display = 'inline-flex';
+            document.getElementById('recordStatus').textContent = '录音中...';
+        } catch (e) {
+            alert('无法访问麦克风: ' + e.message);
+        }
+    }
+
+    function stopRecording() {
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
+            document.getElementById('recordBtn').style.display = 'inline-flex';
+            document.getElementById('stopRecordBtn').style.display = 'none';
+            document.getElementById('recordStatus').textContent = '录音完成';
+        }
+    }
+
+    function drawWaveform() {
+        const canvas = document.getElementById('waveCanvas');
+        const ctx = canvas.getContext('2d');
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+
+        canvas.width = canvas.offsetWidth;
+        canvas.height = canvas.offsetHeight;
+
+        function draw() {
+            animationId = requestAnimationFrame(draw);
+            analyser.getByteFrequencyData(dataArray);
+
+            ctx.fillStyle = 'var(--bg-tertiary)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const barWidth = (canvas.width / bufferLength) * 2.5;
+            let x = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                const barHeight = (dataArray[i] / 255) * canvas.height;
+                ctx.fillStyle = 'var(--primary)';
+                ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+                x += barWidth + 1;
+            }
+        }
+        draw();
+    }
+
+    // 保存录音
+    async function saveRecord() {
+        if (!recordedBlob) { alert('请先录音'); return; }
+
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = '保存中...';
+
+        try {
+            // 转换为 base64
+            const reader = new FileReader();
+            const base64 = await new Promise(resolve => {
+                reader.onloadend = () => {
+                    const base64data = reader.result.split(',')[1];
+                    resolve(base64data);
+                };
+                reader.readAsDataURL(recordedBlob);
+            });
+
+            const name = document.getElementById('recordName').value.trim();
+
+            const data = await BSHTApp.post('/api/audio-library/record', {
+                audio: base64,
+                name: name
+            });
+
+            alert('保存成功!');
+            document.getElementById('recordPreview').style.display = 'none';
+            document.getElementById('recordName').value = '';
+            document.getElementById('recordStatus').textContent = '';
+            recordedBlob = null;
+            loadAudioList();
+        } catch (e) {
+            alert('保存失败: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '保存到音频库';
+        }
+    }
+
+    // 上传音频
+    async function uploadAudio() {
+        const fileInput = document.getElementById('audioFile');
+        const nameInput = document.getElementById('audioName');
+
+        if (!fileInput.files.length) {
+            alert('请选择文件');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        if (nameInput.value.trim()) formData.append('name', nameInput.value.trim());
+
+        try {
+            const token = BSHTApp.getToken();
+            const resp = await fetch('/api/audio-library', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+                body: formData
+            });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || '上传失败');
+            fileInput.value = '';
+            nameInput.value = '';
+            loadAudioList();
+            alert('上传成功!');
+        } catch (e) {
+            alert(e.message);
+        }
+    }
+
+    // 加载音频列表
+    async function loadAudioList() {
+        try {
+            const data = await BSHTApp.get('/api/audio-library');
+            const tbody = document.getElementById('audioTableBody');
+            if (!data.items || data.items.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="9" class="empty-state">暂无音频，请上传或生成</td></tr>';
+                return;
+            }
+            tbody.innerHTML = data.items.map(a => `
+            <tr>
+                <td>${a.name}</td>
+                <td class="text-muted">${a.filename || '-'}</td>
+                <td><span class="source-badge ${a.source_type || 'upload'}">${getSourceLabel(a.source_type)}</span></td>
+                <td>${a.duration ? a.duration + 's' : '-'}</td>
+                <td class="text-muted">${formatSize(a.file_size)}</td>
+                <td>${a.use_count || 0}</td>
+                <td>${a.uploaded_by || '-'}</td>
+                <td class="text-muted">${formatTime(a.created_at)}</td>
+                <td class="action-btns">
+                    <button class="btn-icon" title="播放" onclick="playAudio(${a.id})">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    </button>
+                    <button class="btn-icon btn-icon-danger" title="删除" onclick="deleteAudio(${a.id}, '${a.name}')">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+        } catch (e) {
+            document.getElementById('audioTableBody').innerHTML =
+                '<tr><td colspan="9" class="empty-state">加载失败: ' + e.message + '</td></tr>';
+        }
+    }
+
+    function getSourceLabel(source) {
+        const labels = { 'upload': '上传', 'tts': 'TTS', 'record': '录音' };
+        return labels[source] || '上传';
+    }
+
+    function formatSize(bytes) {
+        if (!bytes) return '-';
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+    }
+
+    function formatTime(ts) {
+        if (!ts) return '-';
+        return ts.replace('T', ' ').substring(0, 16);
+    }
+
+    let currentAudioEl = null;
+    async function playAudio(id) {
+        if (currentAudioEl) { currentAudioEl.pause(); currentAudioEl = null; }
+        try {
+            const token = BSHTApp.getToken();
+            const resp = await fetch(`/api/audio-library/${id}/play`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!resp.ok) throw new Error('播放失败');
+            const blob = await resp.blob();
+            currentAudioEl = new Audio(URL.createObjectURL(blob));
+            currentAudioEl.play().catch(e => alert('播放失败'));
+        } catch (e) {
+            alert('播放失败: ' + e.message);
+        }
+    }
+
+    async function deleteAudio(id, name) {
+        if (!confirm(`确定删除音频 "${name}" ?`)) return;
+        try {
+            await BSHTApp.del(`/api/audio-library/${id}`);
+            loadAudioList();
+        } catch (e) { alert(e.message); }
+    }
+
+    // 初始化
+    loadVoices();
+    loadAudioList();
+    switchTab('upload');
+</script>
+{% endblock %}

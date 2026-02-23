@@ -96,9 +96,28 @@ def migrate(db_path=None):
             file_size INTEGER DEFAULT 0,
             use_count INTEGER DEFAULT 0,
             uploaded_by TEXT DEFAULT '',
+            source_type TEXT DEFAULT 'upload',
+            voice TEXT,
+            tts_text TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # 迁移：检查并添加 audio_library 的新字段
+    try:
+        cursor.execute("PRAGMA table_info(audio_library)")
+        columns = [row[1] for row in cursor.fetchall()]
+        if 'source_type' not in columns:
+            cursor.execute("ALTER TABLE audio_library ADD COLUMN source_type TEXT DEFAULT 'upload'")
+            print("添加 audio_library.source_type 字段")
+        if 'voice' not in columns:
+            cursor.execute("ALTER TABLE audio_library ADD COLUMN voice TEXT")
+            print("添加 audio_library.voice 字段")
+        if 'tts_text' not in columns:
+            cursor.execute("ALTER TABLE audio_library ADD COLUMN tts_text TEXT")
+            print("添加 audio_library.tts_text 字段")
+    except Exception as e:
+        print(f"迁移 audio_library 表: {e}")
 
     # scheduled_tasks 表
     cursor.execute("""
@@ -241,6 +260,20 @@ def migrate(db_path=None):
             print("添加 correction_rules.priority 字段")
     except Exception as e:
         print(f"迁移 correction_rules 表: {e}")
+
+    # 更新默认 admin 密码为 admin（如果需要）
+    try:
+        import bcrypt
+        new_hash = bcrypt.hashpw('admin'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        cursor.execute("""
+            UPDATE users
+            SET password_hash = ?, must_change_password = 0
+            WHERE username = 'admin' AND (password_hash != ? OR must_change_password != 0)
+        """, (new_hash, new_hash))
+        if cursor.rowcount > 0:
+            print("已更新默认管理员密码: admin / admin")
+    except Exception as e:
+        print(f"更新 admin 密码: {e}")
 
     conn.commit()
     conn.close()
