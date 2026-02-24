@@ -47,6 +47,12 @@ def audio_library_page():
     return render_template('audio_library.html')
 
 
+@pages_bp.route('/live')
+def live_page():
+    """实时通话页面"""
+    return render_template('live.html')
+
+
 @pages_bp.route('/audio-realtime')
 def audio_realtime_page():
     """实时音频页面"""

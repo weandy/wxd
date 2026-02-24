@@ -155,7 +155,9 @@ class Runner:
             logger.info("📝 API Key未配置，只录制不识别")
 
         # 初始化 Bot
-        bot = BotServer(username, password, channel_id, channel_passcode)
+        enable_console_ptt = os.getenv('ENABLE_CONSOLE_PTT', '').lower() in ('1', 'true', 'yes')
+        bot = BotServer(username, password, channel_id, channel_passcode,
+                        enable_console_ptt=enable_console_ptt)
 
         # 如果有识别器，修改 BotServer 来使用回调
         if recording_callback:

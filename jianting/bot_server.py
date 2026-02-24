@@ -160,11 +160,12 @@ import threading
 from async_optimization import get_metrics_collector, get_thread_pool, timed_sync
 
 class BotServer:
-    def __init__(self, username, password, target_channel_id, channel_passcode=0):
+    def __init__(self, username, password, target_channel_id, channel_passcode=0, enable_console_ptt=False):
         self.username = username
         self.password = password
         self.target_channel_id = target_channel_id
         self.channel_passcode = channel_passcode
+        self.enable_console_ptt = enable_console_ptt
         self.client = BSHTClient(auto_refresh_token=True)
         self.is_running = False
 
@@ -175,7 +176,7 @@ class BotServer:
         # 启动性能监控线程
         self._start_metrics_monitor()
 
-        logger.info("异步优化组件已初始化")
+        logger.info(f"异步优化组件已初始化 (console_ptt={'开启' if enable_console_ptt else '关闭'})")
 
     def _start_metrics_monitor(self):
         """启动性能监控线程 (每60秒报告一次)"""
@@ -223,6 +224,14 @@ class BotServer:
     def stop(self):
         """停止机器人并清理所有资源"""
         self.is_running = False
+
+        # 清理 bot_bridge 引用
+        try:
+            from web.bot_bridge import clear_bot_listener
+            clear_bot_listener()
+        except ImportError:
+            pass
+
         self.client.close()
         logger.info("机器人已停止")
 
@@ -296,6 +305,7 @@ class BotServer:
         
         # 初始化监听器
         self.listener = AudioStreamListener(self.client)
+        self.listener.enable_local_mic = self.enable_console_ptt  # 仅控制台 PTT 需要本地麦克风
         self.user_cache = {}        # {user_id: nickname}
         self.user_fetching = set()  # Set of user_ids currently being fetched
         self.user_fetching_lock = threading.Lock()  # 保护 user_fetching 的线程安全锁
@@ -310,6 +320,14 @@ class BotServer:
             try:
                 if frame.user_id == 0:
                     return
+
+                # 记录语音活跃度 (VOX Monitor)
+                try:
+                    from src.activity_monitor import monitor
+                    if hasattr(self, 'status') and self.status.get('channel_id'):
+                        monitor.record_activity(self.status['channel_id'], frame.user_id)
+                except Exception as e:
+                    logger.debug(f"VOX Monitor 记录失败: {e}")
 
                 # Speaker Identification (Non-blocking)
                 name = self.user_cache.get(frame.user_id)
@@ -430,6 +448,13 @@ class BotServer:
                         # 3. 启动监听 (包含 UDP 心跳)
                         if self.listener.start_listening():
                             logger.info("音频监听已启动 (UDP 心跳运行中)")
+
+                            # === 注册 listener 到 bot_bridge (供 Web PTT 调用) ===
+                            try:
+                                from web.bot_bridge import set_bot_listener
+                                set_bot_listener(self.listener)
+                            except ImportError as e:
+                                logger.warning(f"bot_bridge 未加载，Web PTT 不可用: {e}")
                             
                             # === 预加载频道成员昵称 ===
                             self._preload_member_names()
@@ -559,10 +584,12 @@ class BotServer:
         """频道内保活循环 (包含 PTT Release 检测)"""
         last_heartbeat_time = time.time()
         
-        # 启动键盘 PTT 监听 (仅首次启动，重连时复用)
-        if not getattr(self, '_ptt_thread_started', False):
+        # 启动键盘 PTT 监听 (仅 enable_console_ptt=True 时启用)
+        if self.enable_console_ptt and not getattr(self, '_ptt_thread_started', False):
             self._ptt_thread_started = True
             self._start_ptt_keyboard()
+        elif not self.enable_console_ptt:
+            logger.info("控制台 PTT 已禁用，使用 Web 端 PTT")
         
         while self.is_running:
             try:
@@ -752,6 +779,19 @@ def create_recording_callback(recognizer, channel_id):
             lost_frames=lost_frames,
             loss_rate=loss_rate
         )
+
+        # 广播新录音事件到前端 (WebSocket)
+        try:
+            broadcast_recording({
+                'user_id': user_id,
+                'user_name': user_name,
+                'duration': duration,
+                'timestamp': start_time,
+                'channel_id': channel_id,
+                'recorder_type': recorder_type,
+            })
+        except Exception as e:
+            logger.warning(f"[录音回调] broadcast_recording 失败: {e}")
     return callback
 
 

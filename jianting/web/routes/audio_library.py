@@ -161,6 +161,66 @@ def delete_audio(audio_id):
     return jsonify({'success': True})
 
 
+@audio_library_bp.route('/<int:audio_id>', methods=['PUT'])
+@admin_required
+def update_audio(audio_id):
+    """更新音频信息"""
+    data = request.get_json() or {}
+    new_name = data.get('name', '').strip()
+    rename_file = data.get('rename_file', False)
+
+    if not new_name:
+        return jsonify({'error': '请输入音频名称'}), 400
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT name, filename, filepath FROM audio_library WHERE id = ?", (audio_id,))
+    row = cursor.fetchone()
+
+    if not row:
+        conn.close()
+        return jsonify({'error': '音频不存在'}), 404
+
+    old_name = row['name']
+    old_filename = row['filename']
+    old_filepath = row['filepath']
+
+    # 如果需要重命名文件
+    if rename_file and old_filename:
+        # 获取扩展名
+        ext = os.path.splitext(old_filename)[1]
+        new_filename = new_name + ext
+        new_filepath = os.path.join(os.path.dirname(old_filepath), new_filename)
+
+        # 检查新文件名是否已存在
+        if os.path.exists(new_filepath) and new_filepath != old_filepath:
+            conn.close()
+            return jsonify({'error': '文件名已存在'}), 400
+
+        # 重命名文件
+        try:
+            os.rename(old_filepath, new_filepath)
+        except Exception as e:
+            conn.close()
+            return jsonify({'error': f'重命名文件失败: {str(e)}'}), 500
+
+        cursor.execute("""
+            UPDATE audio_library SET name = ?, filename = ?, filepath = ? WHERE id = ?
+        """, (new_name, new_filename, new_filepath, audio_id))
+    else:
+        cursor.execute("UPDATE audio_library SET name = ? WHERE id = ?", (new_name, audio_id))
+
+    conn.commit()
+    conn.close()
+
+    add_audit_log('update_audio', g.current_user['id'],
+                  g.current_user['username'],
+                  f'更新音频 {old_name} -> {new_name}',
+                  request.remote_addr)
+
+    return jsonify({'success': True})
+
+
 @audio_library_bp.route('/<int:audio_id>/use', methods=['POST'])
 @can_listen_recordings_required
 def increment_use(audio_id):

@@ -580,4 +580,19 @@ def create_recording_callback(recognizer):
             lost_frames=lost_frames,
             loss_rate=loss_rate
         )
+
+        # 广播新录音事件到前端 (WebSocket 实时推送)
+        try:
+            from web.routes.websocket import broadcast_recording
+            broadcast_recording({
+                'user_id': user_id,
+                'user_name': user_name,
+                'duration': duration,
+                'timestamp': start_time,
+                'channel_id': channel_id,
+                'recorder_type': recorder_type,
+            })
+        except Exception as e:
+            logger.debug(f"broadcast_recording 跳过: {e}")
     return callback
+

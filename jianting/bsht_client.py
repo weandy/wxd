@@ -11,7 +11,15 @@ from abc import ABC, abstractmethod
 from ht_protocol import HTPacket, BinaryPacket, AX25Packet, Tag, ProtocolError, Heartbeat, RTPPacket
 
 # 初始化日志
-logger = logging.getLogger("BSHTClient")
+# 使用项目统一日志
+try:
+    from src.logging_setup import get_logger
+    logger = get_logger("BSHTClient", "main")
+except ImportError:
+    logger = logging.getLogger("BSHTClient")
+    if not logger.handlers:
+        logger.addHandler(logging.StreamHandler())
+        logger.setLevel(logging.INFO)
 
 try:
     import httpx
@@ -1568,7 +1576,7 @@ class AudioStreamListener:
             
             # === 预初始化 TX 组件 (消除首次PTT延迟) ===
             try:
-                from audio_codec import OpusEncoder, AudioRecorder, SAMPLE_RATE, FRAME_SIZE
+                from audio_codec import OpusEncoder, SAMPLE_RATE, FRAME_SIZE
                 if not hasattr(self, '_tx_encoder') or self._tx_encoder is None:
                     self._tx_encoder = OpusEncoder(
                         sample_rate=SAMPLE_RATE,
@@ -1577,19 +1585,19 @@ class AudioStreamListener:
                     )
                     logger.debug("Opus编码器预热完成")
 
-                # 只有在有声卡时才预热录音器
-                if stream is not None:
+                # 本地麦克风录音器: 仅在 enable_local_mic=True 时预初始化
+                if getattr(self, 'enable_local_mic', False) and stream is not None:
+                    from audio_codec import AudioRecorder
                     if not hasattr(self, '_tx_recorder') or self._tx_recorder is None:
                         self._tx_recorder = AudioRecorder(
                             sample_rate=SAMPLE_RATE,
                             frame_size=FRAME_SIZE,
                             channels=1
                         )
-                        # 预开启录音流 (麦克风常开，PTT零延迟)
                         self._tx_recorder.start_recording()
-                        logger.debug("录音器预热完成 (麦克风已就绪)")
+                        logger.info("录音器预热完成 (本地麦克风已就绪)")
                 else:
-                    logger.debug("录音功能跳过 (无声卡)")
+                    logger.info("本地麦克风未启用 (Web PTT 模式)")
 
             except Exception as e:
                 logger.warning(f"TX预初始化失败(非致命): {e}")
@@ -1996,7 +2004,187 @@ class AudioStreamListener:
             logger.warning(f"[TX] 发送停止包失败: {e}")
 
         logger.info("[TX] 🔴 停止发射")
-    
+
+    # ==================== Web PTT 发射 (无麦克风) ====================
+
+    def start_transmit_web(self) -> bool:
+        """
+        开始 Web 端发射 — 不启动本地麦克风
+
+        编码器懒加载一次，跨 PTT 会话复用（避免反复创建/销毁 C 资源）。
+        TX 录音器在每次 PTT 会话开始时初始化。
+
+        Returns:
+            是否成功启动
+        """
+        logger.info("[TX_WEB] start_transmit_web 调用")
+
+        if not self._socket or not self._is_listening:
+            logger.warning("[TX_WEB] 错误: 未连接到语音服务器")
+            return False
+
+        with self._transmit_lock:
+            current_state = getattr(self, '_tx_state', self._TransmitState.IDLE)
+
+            if current_state == self._TransmitState.TRANSMITTING:
+                logger.info("[TX_WEB] 已在发射中")
+                return True
+
+            if current_state in (self._TransmitState.STARTING, self._TransmitState.STOPPING):
+                logger.warning(f"[TX_WEB] 状态转换中: {current_state}")
+                return False
+
+            self._tx_state = self._TransmitState.STARTING
+
+        try:
+            # 编码专用锁 (保护 opus_encode 免受并发调用)
+            if not hasattr(self, '_tx_web_encode_lock'):
+                self._tx_web_encode_lock = threading.Lock()
+
+            with self._transmit_lock:
+                if self._tx_state != self._TransmitState.STARTING:
+                    return False
+
+                # 懒加载编码器 — 只创建一次，永不销毁，跨会话复用
+                if not hasattr(self, '_tx_web_encoder') or self._tx_web_encoder is None:
+                    from audio_codec import OpusEncoder, SAMPLE_RATE, FRAME_SIZE
+                    self._tx_web_encoder = OpusEncoder(
+                        sample_rate=SAMPLE_RATE,
+                        frame_size=FRAME_SIZE,
+                        bitrate=32000
+                    )
+                    logger.info(f"[TX_WEB] 编码器已创建 ({SAMPLE_RATE}Hz, {FRAME_SIZE}帧)")
+
+                self._tx_first_packet = True
+                self._tx_frame_count = 0
+                self._tx_start_time = time.time()
+                self._tx_web_mode = True
+                self._tx_web_recording_started = False
+
+                # 获取 TX 录音器 (由 mixer 管理)
+                self._tx_web_recorder = None
+                if hasattr(self, '_mixer') and self._mixer and self._mixer._tx_recorder:
+                    self._tx_web_recorder = self._mixer._tx_recorder
+
+                # 获取用户信息
+                profile = getattr(self._client, 'profile', None)
+                self._tx_web_uid = profile.user_id if profile else 0
+                self._tx_web_name = profile.nickname if profile else "Web"
+
+                self._tx_state = self._TransmitState.TRANSMITTING
+
+            logger.info("[TX_WEB] 🟢 开始发射 (Web)")
+            return True
+
+        except Exception as e:
+            logger.error(f"[TX_WEB] 启动失败: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            with self._transmit_lock:
+                self._tx_state = self._TransmitState.IDLE
+            return False
+
+    def feed_web_pcm(self, pcm_bytes: bytes):
+        """
+        接收 Web 端发来的 PCM 数据，Opus 编码后 RTP 发射。
+        使用编码锁保证线程安全（Flask-SocketIO threading 模式下同一客户端
+        的多个 ptt:audio 事件可能由不同工作线程处理）。
+        """
+        import numpy as np
+
+        # 快速路径检查 (无锁)
+        if getattr(self, '_tx_state', self._TransmitState.IDLE) != self._TransmitState.TRANSMITTING:
+            return
+
+        if not pcm_bytes or len(pcm_bytes) < 2:
+            return
+
+        # 编码锁— 确保同一时刻只有一个线程调用 opus_encode
+        if not hasattr(self, '_tx_web_encode_lock'):
+            return
+
+        with self._tx_web_encode_lock:
+            # 再次检查状态 (可能在等锁期间被 stop 改了)
+            if getattr(self, '_tx_state', self._TransmitState.IDLE) != self._TransmitState.TRANSMITTING:
+                return
+
+            try:
+                pcm_array = np.frombuffer(pcm_bytes, dtype=np.int16)
+
+                from audio_codec import FRAME_SIZE
+                offset = 0
+                while offset + FRAME_SIZE <= len(pcm_array):
+                    # 确保内存连续 (numpy slice view 可能不连续)
+                    frame = np.ascontiguousarray(pcm_array[offset:offset + FRAME_SIZE])
+
+                    # 首帧到达时开始 TX 录音
+                    if not self._tx_web_recording_started and self._tx_web_recorder:
+                        self._tx_web_recorder.on_speaker_start(self._tx_web_uid, self._tx_web_name)
+                        self._tx_web_recording_started = True
+                        logger.info(f"[TX_WEB] TX 录音已开始 (uid={self._tx_web_uid})")
+
+                    # 写入 TX 录音器
+                    if self._tx_web_recorder:
+                        self._tx_web_recorder.write_pcm(self._tx_web_uid, frame.tobytes())
+
+                    # Opus 编码 + RTP 发射
+                    opus_data = self._tx_web_encoder.encode(frame)
+                    if opus_data:
+                        is_first = self._tx_first_packet
+                        if is_first:
+                            self._tx_first_packet = False
+
+                        self.send_audio(opus_data, marker=is_first)
+                        self._tx_frame_count += 1
+
+                        if self._tx_frame_count % 50 == 0:
+                            elapsed = self._tx_frame_count * 0.02
+                            logger.info(f"[TX_WEB] 发射进度: {elapsed:.1f}s, {self._tx_frame_count} 帧")
+
+                    offset += FRAME_SIZE
+
+            except Exception as e:
+                logger.error(f"[TX_WEB] feed_web_pcm 异常: {e}")
+                import traceback
+                logger.debug(traceback.format_exc())
+
+    def stop_transmit_web(self):
+        """停止 Web 端发射，结束 TX 录音。不销毁编码器（复用）。"""
+        logger.info("[TX_WEB] stop_transmit_web 调用")
+
+        with self._transmit_lock:
+            current_state = getattr(self, '_tx_state', self._TransmitState.IDLE)
+            if current_state != self._TransmitState.TRANSMITTING:
+                return
+            self._tx_state = self._TransmitState.STOPPING
+
+        # 获取编码锁 — 等待正在进行的 feed_web_pcm 完成
+        if hasattr(self, '_tx_web_encode_lock'):
+            self._tx_web_encode_lock.acquire()
+            self._tx_web_encode_lock.release()
+
+        # 发送 TX_AUDIO_STOP 包
+        try:
+            self.send_audio(b'', marker=False)
+            logger.info("[TX_WEB] 已发送 TX_AUDIO_STOP")
+        except Exception as e:
+            logger.warning(f"[TX_WEB] 发送停止包失败: {e}")
+
+        # 结束 TX 录音
+        duration = self._tx_frame_count * 0.02
+        if self._tx_web_recording_started and self._tx_web_recorder:
+            self._tx_web_recorder.on_speaker_end(
+                self._tx_web_uid, duration, self._tx_frame_count, 0, 0
+            )
+            logger.info(f"[TX_WEB] TX 录音已保存 ({duration:.2f}s)")
+
+        # 不销毁编码器 — 跨 PTT 会话复用
+        with self._transmit_lock:
+            self._tx_state = self._TransmitState.IDLE
+            self._tx_web_mode = False
+
+        logger.info(f"[TX_WEB] 🔴 停止发射 (Web): {self._tx_frame_count} 帧, {duration:.2f}s")
+
     def _transmit_loop(self):
         """
         发射线程: 录音 → Opus编码 → RTP发送

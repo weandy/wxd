@@ -112,12 +112,20 @@ class TTSEngine:
         # 读取时长
         duration = 0
         try:
+            # 先尝试用返回的数据直接解析
             with wave.open(io.BytesIO(wav_data)) as wav:
                 frames = wav.getnframes()
                 rate = wav.getframerate()
                 duration = round(frames / rate, 1)
         except Exception:
-            pass
+            # 如果解析失败，尝试保存后再读取
+            try:
+                with wave.open(filepath, 'r') as wav:
+                    frames = wav.getnframes()
+                    rate = wav.getframerate()
+                    duration = round(frames / rate, 1)
+            except Exception:
+                pass
 
         return filepath, duration, file_size
 

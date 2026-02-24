@@ -1,18 +1,6 @@
 """
 频道对话录制器
 
-持续录制频道内的所有音频对话:
-- 每段 PTT 通话 = 一个 WAV 文件
-- 按日期组织文件夹
-- conversation_log.json 记录完整时间线
-
-存储结构:
-  recordings/
-  └── 2026-02-17/
-      ├── conversation_log.json
-      ├── 频道A_用户X_15-10-41.wav
-      ├── 频道A_用户Y_15-10-45.wav
-      └── 频道B_用户Z_15-11-02.wav
 """
 
 import os
@@ -33,18 +21,6 @@ class ChannelRecorder:
     """
     频道对话录制器
     
-    接入 AudioMixer 的回调，将解码后的 PCM 写入 WAV 文件。
-    
-    Usage:
-        recorder = ChannelRecorder(channel_id=62793)
-        
-        # 在 AudioMixer 中:
-        mixer.set_recorder(recorder)
-        
-        # 或手动调用:
-        recorder.on_speaker_start(ssrc=123, name="用户A")
-        recorder.write_pcm(ssrc=123, pcm_data=b'...')
-        recorder.on_speaker_end(ssrc=123, duration=5.0, ...)
     """
     
     SAMPLE_RATE = 48000

@@ -8,15 +8,15 @@
 <button class="btn btn-sm btn-outline" onclick="reloadPusher()">
     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
         stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21.5 2v6h-6M21.34 5.5A10 10 0 1 1 12 2a10 10 0 0 0 9.34 3.5"/>
+        <path d="M21.5 2v6h-6M21.34 5.5A10 10 0 1 1 12 2a10 10 0 0 0 9.34 3.5" />
     </svg>
     热更新
 </button>
 <button class="btn btn-sm btn-outline" onclick="testPusher()">
     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
         stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-        <polyline points="22 4 12 14.01 9 11.01"/>
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+        <polyline points="22 4 12 14.01 9 11.01" />
     </svg>
     测试推送
 </button>
@@ -31,6 +31,32 @@
 {% endblock %}
 
 {% block page_content %}
+<!-- 高频语音系统预警 -->
+<div class="card" style="margin-bottom:20px">
+    <div class="card-header">
+        <h3>高频语音预警设置</h3>
+        <button class="btn btn-sm btn-primary" onclick="saveVoxConfig()">保存设置</button>
+    </div>
+    <div class="card-body">
+        <div style="display:flex;gap:15px;align-items:center;flex-wrap:wrap;">
+            <div class="form-group" style="margin-bottom:0;display:flex;align-items:center;gap:8px;">
+                <input type="checkbox" id="voxAlertEnabled" style="width:18px;height:18px;">
+                <label for="voxAlertEnabled" style="margin:0;cursor:pointer;">启用语音高频预警</label>
+            </div>
+            <div class="form-group" style="margin-bottom:0;display:flex;align-items:center;gap:8px;">
+                <label style="margin:0;">在</label>
+                <input type="number" id="voxAlertSeconds" value="10" min="1" max="120"
+                    style="width:60px;padding:4px 8px;border-radius:4px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.06);color:#fff;">
+                <label style="margin:0;">秒内连续收到</label>
+                <input type="number" id="voxAlertCount" value="3" min="1" max="50"
+                    style="width:60px;padding:4px 8px;border-radius:4px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.06);color:#fff;">
+                <label style="margin:0;">次外部语音时触发推送</label>
+            </div>
+        </div>
+        <div style="margin-top:8px;font-size:12px;color:#9ca3af;">触发此预警后，系统将自动向下方所有已启用的推送用户发送告警消息。</div>
+    </div>
+</div>
+
 <!-- 推送服务列表 -->
 <div class="table-container" style="margin-bottom:20px">
     <table class="data-table">
@@ -322,6 +348,38 @@
 
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
+    async function loadVoxConfig() {
+        try {
+            const data = await BSHTApp.get('/api/config');
+            const items = data.items || [];
+
+            const en = items.find(i => i.key === 'VOX_ALERT_ENABLED');
+            const sec = items.find(i => i.key === 'VOX_ALERT_SECONDS');
+            const cnt = items.find(i => i.key === 'VOX_ALERT_COUNT');
+
+            if (en) document.getElementById('voxAlertEnabled').checked = (en.value === '1');
+            if (sec && sec.value) document.getElementById('voxAlertSeconds').value = sec.value;
+            if (cnt && cnt.value) document.getElementById('voxAlertCount').value = cnt.value;
+        } catch (e) {
+            console.error('加载系统配置失败', e);
+        }
+    }
+
+    async function saveVoxConfig() {
+        const changes = {
+            'VOX_ALERT_ENABLED': document.getElementById('voxAlertEnabled').checked ? '1' : '0',
+            'VOX_ALERT_SECONDS': document.getElementById('voxAlertSeconds').value || '10',
+            'VOX_ALERT_COUNT': document.getElementById('voxAlertCount').value || '3'
+        };
+        try {
+            await BSHTApp.put('/api/config', { changes });
+            alert('保存成功');
+        } catch (e) {
+            alert('保存失败: ' + (e.message || '未知错误'));
+        }
+    }
+
     loadServices();
+    loadVoxConfig();
 </script>
 {% endblock %}
