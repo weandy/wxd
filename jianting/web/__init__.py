@@ -38,7 +38,6 @@ def create_app():
     init_default_admin(app.config['DATABASE_PATH'])
 
     # 注册蓝图 (按依赖顺序)
-    from web.routes.auth import auth_bp
     from web.routes.bot import bot_bp
     from web.routes.recordings import recordings_bp
     from web.routes.system import system_bp
@@ -52,7 +51,6 @@ def create_app():
     from web.routes.data_maintenance import data_maintenance_bp
     from web.routes.audit_logs import audit_logs_bp
 
-    app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(bot_bp, url_prefix='/api/bot')
     app.register_blueprint(recordings_bp, url_prefix='/api/recordings')
     app.register_blueprint(system_bp, url_prefix='/api/system')

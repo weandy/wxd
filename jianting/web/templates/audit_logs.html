@@ -1,0 +1,221 @@
+{% extends "layout.html" %}
+{% set active_page = 'audit_logs' %}
+
+{% block title %}操作日志 - BSHT Bot{% endblock %}
+{% block page_title %}操作日志{% endblock %}
+
+{% block page_actions %}
+<button class="btn btn-sm btn-danger" onclick="clearLogs()">清理日志</button>
+{% endblock %}
+
+{% block page_content %}
+<!-- 统计卡片 -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">今日操作</div>
+        <div class="stat-value" id="todayCount">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">本周操作</div>
+        <div class="stat-value" id="weekCount">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">操作类型</div>
+        <div class="stat-value" id="actionTypes">--</div>
+    </div>
+</div>
+
+<!-- 筛选栏 -->
+<div class="card">
+    <div class="card-body" style="padding:15px;">
+        <div style="display:flex;gap:15px;align-items:center;flex-wrap:wrap;">
+            <div class="form-group" style="margin-bottom:0;">
+                <select class="form-control" id="filterAction" style="width:150px;">
+                    <option value="">全部操作</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+                <select class="form-control" id="filterDays" style="width:150px;">
+                    <option value="1">最近1天</option>
+                    <option value="7" selected>最近7天</option>
+                    <option value="30">最近30天</option>
+                    <option value="90">最近90天</option>
+                    <option value="0">全部</option>
+                </select>
+            </div>
+            <button class="btn btn-sm btn-primary" onclick="loadLogs(1)">筛选</button>
+        </div>
+    </div>
+</div>
+
+<!-- 日志列表 -->
+<div class="card">
+    <div class="card-body">
+        <div id="logList">
+            <div class="loading"><div class="spinner"></div></div>
+        </div>
+    </div>
+</div>
+
+<!-- 分页 -->
+<div class="pagination" id="pagination"></div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentPage = 1;
+
+// 加载日志列表
+async function loadLogs(page) {
+    currentPage = page || 1;
+    const action = document.getElementById('filterAction').value;
+    const days = document.getElementById('filterDays').value;
+
+    let url = `/api/audit-logs?page=${currentPage}&per_page=50`;
+    if (action) url += `&action=${encodeURIComponent(action)}`;
+    if (days) url += `&days=${days}`;
+
+    try {
+        const data = await BSHTApp.get(url);
+        renderLogs(data.items);
+        renderPagination(data.page, data.pages, data.total);
+    } catch (e) {
+        document.getElementById('logList').innerHTML = `<div class="empty-state">加载失败: ${e.message}</div>`;
+    }
+}
+
+// 加载操作类型
+async function loadActions() {
+    try {
+        const data = await BSHTApp.get('/api/audit-logs/actions');
+        const select = document.getElementById('filterAction');
+        select.innerHTML = '<option value="">全部操作</option>' +
+            (data.actions || []).map(a => `<option value="${a}">${getActionLabel(a)}</option>`).join('');
+    } catch (e) {
+        console.error('加载操作类型失败:', e);
+    }
+}
+
+// 加载统计数据
+async function loadStats() {
+    try {
+        const data = await BSHTApp.get('/api/audit-logs/stats?days=7');
+        const byAction = data.by_action || [];
+
+        // 找到今日和本周的统计
+        const daily = data.daily || [];
+        const today = new Date().toISOString().split('T')[0];
+        const todayData = daily.find(d => d.date === today);
+
+        document.getElementById('todayCount').textContent = todayData ? todayData.count : 0;
+        document.getElementById('weekCount').textContent = daily.reduce((sum, d) => sum + d.count, 0);
+        document.getElementById('actionTypes').textContent = byAction.length;
+    } catch (e) {
+        console.error('加载统计失败:', e);
+    }
+}
+
+// 渲染日志列表
+function renderLogs(items) {
+    if (!items || items.length === 0) {
+        document.getElementById('logList').innerHTML = '<div class="empty-state">暂无日志记录</div>';
+        return;
+    }
+
+    let html = `<table class="table">
+        <thead>
+            <tr>
+                <th>时间</th>
+                <th>用户</th>
+                <th>操作</th>
+                <th>详情</th>
+                <th>IP</th>
+            </tr>
+        </thead>
+        <tbody>`;
+
+    items.forEach(log => {
+        html += `<tr>
+            <td>${formatDate(log.timestamp)}</td>
+            <td>${log.username || log.user_id || '-'}</td>
+            <td><span class="badge badge-${getActionBadge(log.action)}">${getActionLabel(log.action)}</span></td>
+            <td class="text-muted" style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${log.details || '-'}</td>
+            <td class="text-muted">${log.ip_address || '-'}</td>
+        </tr>`;
+    });
+
+    html += '</tbody></table>';
+    document.getElementById('logList').innerHTML = html;
+}
+
+// 渲染分页
+function renderPagination(page, pages, total) {
+    const el = document.getElementById('pagination');
+    if (pages <= 1) { el.innerHTML = ''; return; }
+
+    let html = `<span class="page-info">共 ${total} 条</span>`;
+    if (page > 1) html += `<button class="btn btn-sm btn-ghost" onclick="loadLogs(${page - 1})">上一页</button>`;
+
+    const start = Math.max(1, page - 2);
+    const end = Math.min(pages, page + 2);
+    for (let i = start; i <= end; i++) {
+        html += `<button class="btn btn-sm ${i === page ? 'btn-primary' : 'btn-ghost'}" onclick="loadLogs(${i})">${i}</button>`;
+    }
+
+    if (page < pages) html += `<button class="btn btn-sm btn-ghost" onclick="loadLogs(${page + 1})">下一页</button>`;
+    el.innerHTML = html;
+}
+
+// 获取操作类型标签
+function getActionLabel(action) {
+    const labels = {
+        'login': '登录',
+        'logout': '退出',
+        'create': '创建',
+        'update': '更新',
+        'delete': '删除',
+        'config': '配置',
+        'broadcast': '广播',
+        'transmit': '发射'
+    };
+    return labels[action] || action;
+}
+
+// 获取操作类型徽章颜色
+function getActionBadge(action) {
+    const badges = {
+        'login': 'success',
+        'logout': 'warning',
+        'create': 'success',
+        'update': 'info',
+        'delete': 'danger',
+        'config': 'warning',
+        'broadcast': 'info',
+        'transmit': 'success'
+    };
+    return badges[action] || 'info';
+}
+
+// 清理日志
+async function clearLogs() {
+    const days = prompt('保留最近多少天的日志？', '90');
+    if (!days) return;
+
+    if (!await confirm(`确定删除 ${days} 天之前的所有日志吗？`)) return;
+
+    try {
+        await BSHTApp.post('/api/audit-logs/clear', { days: parseInt(days) });
+        alert('清理成功');
+        loadLogs(1);
+        loadStats();
+    } catch (e) {
+        alert('清理失败: ' + e.message);
+    }
+}
+
+// 初始化
+loadLogs(1);
+loadActions();
+loadStats();
+</script>
+{% endblock %}

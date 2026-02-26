@@ -164,7 +164,7 @@
         if (userName) url += `&user_name=${encodeURIComponent(userName)}`;
 
         try {
-            const data = await API.get(url);
+            const data = await BSHTApp.get(url);
             renderTable(data.items);
             renderPagination(data.page, data.pages, data.total);
         } catch (e) {
@@ -252,7 +252,7 @@
     async function deleteOne(id) {
         if (!confirm('确定删除此录音？')) return;
         try {
-            await API.del(`/api/recordings/${id}`);
+            await BSHTApp.del(`/api/recordings/${id}`);
             loadRecordings(currentPage);
         } catch (e) {
             alert('删除失败');
@@ -276,7 +276,7 @@
         if (!confirm(`确定删除 ${ids.length} 条录音？`)) return;
 
         try {
-            await API.del('/api/recordings/batch', { ids });
+            await BSHTApp.del('/api/recordings/batch', { ids });
             loadRecordings(currentPage);
         } catch (e) {
             alert('批量删除失败');

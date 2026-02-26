@@ -1,0 +1,206 @@
+{% extends "layout.html" %}
+{% set active_page = 'users' %}
+
+{% block title %}用户管理 - BSHT Bot{% endblock %}
+{% block page_title %}用户管理{% endblock %}
+
+{% block page_content %}
+<div class="card">
+    <div class="card-header">
+        <h3>用户列表</h3>
+        <button class="btn btn-primary" onclick="showAddModal()">+ 添加用户</button>
+    </div>
+    <div class="card-body">
+        <div id="userList">
+            <div class="loading"><div class="spinner"></div></div>
+        </div>
+    </div>
+</div>
+
+<!-- 添加/编辑模态框 -->
+<div class="modal" id="userModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="modalTitle">添加用户</h3>
+            <button class="btn btn-ghost" onclick="closeUserModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <form id="userForm">
+                <input type="hidden" id="userId">
+                <div class="form-group">
+                    <label class="form-label">用户名 *</label>
+                    <input type="text" class="form-control" id="username" required placeholder="请输入用户名">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">密码 <span id="passwordHint">(必填)</span></label>
+                    <input type="password" class="form-control" id="password" placeholder="请输入密码">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">角色</label>
+                    <select class="form-control" id="userRole">
+                        <option value="observer">观察者</option>
+                        <option value="user">普通用户</option>
+                        <option value="admin">管理员</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">权限</label>
+                    <div>
+                        <label style="display:inline-flex;align-items:center;margin-right:15px;">
+                            <input type="checkbox" id="canListen" style="margin-right:5px;"> 收听录音
+                        </label>
+                        <label style="display:inline-flex;align-items:center;">
+                            <input type="checkbox" id="canTransmit" style="margin-right:5px;"> 发射音频
+                        </label>
+                    </div>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeUserModal()">取消</button>
+            <button class="btn btn-primary" onclick="saveUser()">保存</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let users = [];
+
+// 加载用户列表
+async function loadUsers() {
+    try {
+        const data = await apiRequest('/api/users');
+        users = data.items || [];
+        renderUsers();
+    } catch (e) {
+        document.getElementById('userList').innerHTML = `<div class="empty-state">加载失败: ${e.message}</div>`;
+    }
+}
+
+// 渲染用户列表
+function renderUsers() {
+    if (users.length === 0) {
+        document.getElementById('userList').innerHTML = '<div class="empty-state">暂无用户</div>';
+        return;
+    }
+
+    const roleMap = { admin: '管理员', user: '普通用户', observer: '观察者' };
+
+    let html = `<table class="table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>用户名</th>
+                <th>角色</th>
+                <th>收听权限</th>
+                <th>发射权限</th>
+                <th>最后登录</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>`;
+
+    users.forEach(u => {
+        html += `<tr>
+            <td>${u.id}</td>
+            <td>${u.username}</td>
+            <td><span class="badge badge-${u.role === 'admin' ? 'danger' : u.role === 'user' ? 'info' : 'warning'}">${roleMap[u.role] || u.role}</span></td>
+            <td>${u.can_listen_recordings ? '<span class="badge badge-success">是</span>' : '<span class="badge badge-warning">否</span>'}</td>
+            <td>${u.can_transmit ? '<span class="badge badge-success">是</span>' : '<span class="badge badge-warning">否</span>'}</td>
+            <td>${formatDate(u.last_login)}</td>
+            <td>
+                <button class="btn btn-sm btn-ghost" onclick="editUser(${u.id})">编辑</button>
+                ${u.id !== 1 ? `<button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id})">删除</button>` : ''}
+            </td>
+        </tr>`;
+    });
+
+    html += '</tbody></table>';
+    document.getElementById('userList').innerHTML = html;
+}
+
+// 显示添加模态框
+function showAddModal() {
+    document.getElementById('modalTitle').textContent = '添加用户';
+    document.getElementById('userId').value = '';
+    document.getElementById('userForm').reset();
+    document.getElementById('passwordHint').textContent = '(必填)';
+    document.getElementById('password').required = true;
+    document.getElementById('userModal').classList.add('show');
+}
+
+// 编辑用户
+function editUser(id) {
+    const u = users.find(user => user.id === id);
+    if (!u) return;
+
+    document.getElementById('modalTitle').textContent = '编辑用户';
+    document.getElementById('userId').value = u.id;
+    document.getElementById('username').value = u.username;
+    document.getElementById('password').value = '';
+    document.getElementById('password').required = false;
+    document.getElementById('passwordHint').textContent = '(留空则不修改)');
+    document.getElementById('userRole').value = u.role || 'observer';
+    document.getElementById('canListen').checked = u.can_listen_recordings;
+    document.getElementById('canTransmit').checked = u.can_transmit;
+    document.getElementById('userModal').classList.add('show');
+}
+
+// 关闭模态框
+function closeUserModal() {
+    document.getElementById('userModal').classList.remove('show');
+}
+
+// 保存用户
+async function saveUser() {
+    const id = document.getElementById('userId').value;
+    const username = document.getElementById('username').value;
+    const password = document.getElementById('password').value;
+    const role = document.getElementById('userRole').value;
+    const can_listen_recordings = document.getElementById('canListen').checked;
+    const can_transmit = document.getElementById('canTransmit').checked;
+
+    if (!username) {
+        alert('请输入用户名');
+        return;
+    }
+
+    if (!id && !password) {
+        alert('请输入密码');
+        return;
+    }
+
+    try {
+        const url = id ? `/api/users/${id}` : '/api/users';
+        const method = id ? 'PUT' : 'POST';
+
+        const body = { username, role, can_listen_recordings, can_transmit };
+        if (password) body.password = password;
+
+        await apiRequest(url, { method, body: JSON.stringify(body) });
+
+        closeUserModal();
+        loadUsers();
+    } catch (e) {
+        alert('保存失败: ' + e.message);
+    }
+}
+
+// 删除用户
+async function deleteUser(id) {
+    if (!await confirm('确定要删除这个用户吗？')) return;
+
+    try {
+        await apiRequest(`/api/users/${id}`, { method: 'DELETE' });
+        loadUsers();
+    } catch (e) {
+        alert('删除失败: ' + e.message);
+    }
+}
+
+// 页面加载
+loadUsers();
+</script>
+{% endblock %}

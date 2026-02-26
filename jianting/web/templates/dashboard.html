@@ -94,13 +94,16 @@
 <script>
     const API = window.BSHTApp;
 
-    // ========== Bot Socket.IO 连接 ==========
+    // ========== Bot Socket.IO 连接 (自动选择最佳传输方式) ==========
     let botSocket = null;
 
     function setupBotSocket() {
-        // 使用 Socket.IO 连接到 /bot 命名空间
-        botSocket = io('/bot', {
-            transports: ['websocket', 'polling']
+        const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+        const socketUrl = `${protocol}//${window.location.host}`;
+
+        botSocket = io(socketUrl, {
+            transports: ['websocket', 'polling'],  // 自动选择
+            withCredentials: false
         });
 
         botSocket.on('connect', () => {
@@ -111,12 +114,9 @@
             }).catch(err => console.error('获取状态失败:', err));
         });
 
-        botSocket.on('bot:connected', (data) => {
-            console.log('Bot 已认证:', data);
-        });
-
+        // 监听 bot 事件 (不需要连接认证)
         botSocket.on('bot:status', (data) => {
-            console.log('Bot 状态:', data);
+            console.log('收到 bot:status', data);
             handleBotStatus(data);
         });
 
@@ -141,7 +141,7 @@
         });
 
         botSocket.on('connect_error', (err) => {
-            console.error('Bot Socket.IO 连接错误:', err);
+            console.error('Bot Socket.IO 错误:', err.message);
         });
     }
 

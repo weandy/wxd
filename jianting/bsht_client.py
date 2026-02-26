@@ -4,6 +4,8 @@ import json
 import time
 import threading
 import logging
+import queue
+import numpy as np
 from typing import Optional, Tuple, List, Dict, Any, Callable
 from dataclasses import dataclass, field
 from enum import IntEnum
@@ -1836,6 +1838,7 @@ class AudioStreamListener:
         STARTING = 1
         TRANSMITTING = 2
         STOPPING = 3
+        BUFFERING = 4  # 预缓冲状态
 
     def start_transmit(self) -> bool:
         """
@@ -2014,6 +2017,8 @@ class AudioStreamListener:
         编码器懒加载一次，跨 PTT 会话复用（避免反复创建/销毁 C 资源）。
         TX 录音器在每次 PTT 会话开始时初始化。
 
+        使用后台编码线程避免阻塞 Socket.IO 事件循环。
+
         Returns:
             是否成功启动
         """
@@ -2037,9 +2042,22 @@ class AudioStreamListener:
             self._tx_state = self._TransmitState.STARTING
 
         try:
-            # 编码专用锁 (保护 opus_encode 免受并发调用)
-            if not hasattr(self, '_tx_web_encode_lock'):
-                self._tx_web_encode_lock = threading.Lock()
+            # 初始化 PCM 队列（缓冲 50 帧 = 1 秒，容忍 SocketIO 传输抖动）
+            if not hasattr(self, '_tx_web_pcm_queue'):
+                self._tx_web_pcm_queue = queue.Queue(maxsize=50)
+            else:
+                # 清空队列（上次可能残留数据）
+                while not self._tx_web_pcm_queue.empty():
+                    try:
+                        self._tx_web_pcm_queue.get_nowait()
+                    except queue.Empty:
+                        break
+
+            # 重置累积缓冲区
+            self._tx_web_pcm_accum = b''
+
+            # 启动后台编码线程
+            self._start_web_tx_encoder_thread()
 
             with self._transmit_lock:
                 if self._tx_state != self._TransmitState.STARTING:
@@ -2051,9 +2069,9 @@ class AudioStreamListener:
                     self._tx_web_encoder = OpusEncoder(
                         sample_rate=SAMPLE_RATE,
                         frame_size=FRAME_SIZE,
-                        bitrate=32000
+                        bitrate=64000  # 64kbps
                     )
-                    logger.info(f"[TX_WEB] 编码器已创建 ({SAMPLE_RATE}Hz, {FRAME_SIZE}帧)")
+                    logger.info(f"[TX_WEB] 编码器已创建 ({SAMPLE_RATE}Hz, {FRAME_SIZE}帧, 64kbps)")
 
                 self._tx_first_packet = True
                 self._tx_frame_count = 0
@@ -2071,9 +2089,9 @@ class AudioStreamListener:
                 self._tx_web_uid = profile.user_id if profile else 0
                 self._tx_web_name = profile.nickname if profile else "Web"
 
-                self._tx_state = self._TransmitState.TRANSMITTING
+                self._tx_state = self._TransmitState.BUFFERING  # 预缓冲状态开始
 
-            logger.info("[TX_WEB] 🟢 开始发射 (Web)")
+            logger.info("[TX_WEB] 🟢 开始发射 (Web) [后台编码模式]")
             return True
 
         except Exception as e:
@@ -2086,67 +2104,206 @@ class AudioStreamListener:
 
     def feed_web_pcm(self, pcm_bytes: bytes):
         """
-        接收 Web 端发来的 PCM 数据，Opus 编码后 RTP 发射。
-        使用编码锁保证线程安全（Flask-SocketIO threading 模式下同一客户端
-        的多个 ptt:audio 事件可能由不同工作线程处理）。
-        """
-        import numpy as np
+        接收 Web 端发来的 PCM 数据，通过累积缓冲区按帧切割后放入队列。
 
-        # 快速路径检查 (无锁)
-        if getattr(self, '_tx_state', self._TransmitState.IDLE) != self._TransmitState.TRANSMITTING:
+        累积缓冲区确保：
+        - 不完整的 PCM 帧不会被丢弃（等待后续数据拼接）
+        - 多帧粘包时正确切割为独立帧入队
+        """
+        # 快速路径检查 (无锁) - 允许 BUFFERING 和 TRANSMITTING 状态接收数据
+        current_state = getattr(self, '_tx_state', self._TransmitState.IDLE)
+        if current_state not in (self._TransmitState.TRANSMITTING, self._TransmitState.BUFFERING):
             return
 
         if not pcm_bytes or len(pcm_bytes) < 2:
             return
 
-        # 编码锁— 确保同一时刻只有一个线程调用 opus_encode
-        if not hasattr(self, '_tx_web_encode_lock'):
+        FRAME_BYTES = 1920  # 960 samples * 2 bytes/sample (Int16)
+
+        # 追加到累积缓冲区
+        accum = getattr(self, '_tx_web_pcm_accum', b'') + pcm_bytes
+
+        # 按帧大小切割并入队
+        while len(accum) >= FRAME_BYTES:
+            frame_data = accum[:FRAME_BYTES]
+            accum = accum[FRAME_BYTES:]
+            try:
+                if hasattr(self, '_tx_web_pcm_queue'):
+                    self._tx_web_pcm_queue.put_nowait(frame_data)
+            except queue.Full:
+                logger.warning("[TX_WEB] PCM 队列已满，丢弃帧")
+                # 队列满时清空累积缓冲区，避免积压过多过时数据
+                accum = b''
+                break
+
+        self._tx_web_pcm_accum = accum
+
+    def process_webrtc_audio(self, audio_data: bytes):
+        """
+        处理 WebRTC DataChannel 接收到的音频数据
+
+        WebRTC DataChannel 直接传输 PCM 数据（无需解析帧边界），
+        直接放入队列由编码线程处理。
+
+        Args:
+            audio_data: 原始 PCM 字节数据
+        """
+        # 快速路径检查 (无锁) - 允许 BUFFERING 和 TRANSMITTING 状态接收数据
+        current_state = getattr(self, '_tx_state', self._TransmitState.IDLE)
+        if current_state not in (self._TransmitState.TRANSMITTING, self._TransmitState.BUFFERING):
             return
 
-        with self._tx_web_encode_lock:
-            # 再次检查状态 (可能在等锁期间被 stop 改了)
-            if getattr(self, '_tx_state', self._TransmitState.IDLE) != self._TransmitState.TRANSMITTING:
-                return
+        if not audio_data or len(audio_data) < 2:
+            return
+
+        # 直接放入队列（假设数据已经是完整的帧）
+        try:
+            if hasattr(self, '_tx_web_pcm_queue'):
+                # 如果数据量较大，切分成多个帧
+                FRAME_BYTES = 1920  # 960 samples * 2 bytes
+                offset = 0
+                while offset + FRAME_BYTES <= len(audio_data):
+                    frame_data = audio_data[offset:offset + FRAME_BYTES]
+                    try:
+                        self._tx_web_pcm_queue.put_nowait(frame_data)
+                    except queue.Full:
+                        logger.warning("[TX_WEB] WebRTC PCM 队列已满，丢弃帧")
+                        break
+                    offset += FRAME_BYTES
+
+                # 处理剩余的不完整帧，追加到累积缓冲区
+                if offset < len(audio_data):
+                    remaining = audio_data[offset:]
+                    accum = getattr(self, '_tx_web_pcm_accum', b'') + remaining
+                    self._tx_web_pcm_accum = accum
+        except Exception as e:
+            logger.error(f"[TX_WEB] 处理 WebRTC 音频错误: {e}")
+
+    def _start_web_tx_encoder_thread(self):
+        """启动 Web 发射的后台编码线程"""
+        if not hasattr(self, '_tx_web_encoder_thread') or not self._tx_web_encoder_thread or not self._tx_web_encoder_thread.is_alive():
+            self._tx_web_encoder_thread = threading.Thread(
+                target=self._web_tx_encoder_loop,
+                daemon=True,
+                name="WebTxEncoder"
+            )
+            self._tx_web_encoder_thread.start()
+            logger.info("[TX_WEB] 编码线程已启动")
+
+    def _web_tx_encoder_loop(self):
+        """
+        Web 发射编码线程：从队列取 PCM → Opus编码 → RTP发送
+
+        前端每个 SocketIO 事件携带 2 帧 (3840字节)，feed_web_pcm 自动
+        拆为 2 个 960 样本帧入队。队列实际入帧率 ~50fps。
+
+        使用 monotonic 时钟节拍确保 RTP 包间距稳定 20ms。
+        """
+        import numpy as np
+        from audio_codec import FRAME_SIZE
+
+        logger.info("[TX_WEB] 编码线程开始运行")
+        last_log_time = time.time()
+        frames_in_last_second = 0
+        FRAME_INTERVAL = 0.020  # 20ms
+        PREBUFFER_FRAMES = 15  # 预缓冲 15 帧 (300ms)，匹配前端 100ms 发送间隔
+        FRAME_BYTES = 1920      # 960 samples * 2 bytes
+        SILENCE_FRAME = bytes(FRAME_BYTES)  # 静音帧
+        send_clock = None
+
+        while True:
+            current_state = getattr(self, '_tx_state', self._TransmitState.IDLE)
+
+            # BUFFERING 状态：等待预缓冲完成
+            if current_state == self._TransmitState.BUFFERING:
+                qsize = self._tx_web_pcm_queue.qsize() if hasattr(self, '_tx_web_pcm_queue') else 0
+                if qsize >= PREBUFFER_FRAMES:
+                    # 缓冲完成，切换到 TRANSMITTING
+                    with self._transmit_lock:
+                        self._tx_state = self._TransmitState.TRANSMITTING
+                    current_state = self._TransmitState.TRANSMITTING  # 更新局部变量
+                    send_clock = time.monotonic()  # 重置时钟
+                    logger.info(f"[TX_WEB] 预缓冲完成，开始发送 ({qsize} 帧)")
+                else:
+                    time.sleep(0.01)  # 等待更多帧
+                    continue
+
+            # 检查是否仍在发射
+            if current_state != self._TransmitState.TRANSMITTING:
+                send_clock = None
+                time.sleep(0.01)
+                continue
 
             try:
+                # 从队列获取 PCM 帧（阻塞等待）
+                try:
+                    pcm_bytes = self._tx_web_pcm_queue.get(timeout=0.001)  # 缩短等待时间
+                except queue.Empty:
+                    # 队列为空，发送静音帧保持节奏
+                    pcm_bytes = SILENCE_FRAME
+                    silent_frames_sent = getattr(self, '_silent_frame_count', 0) + 1
+                    self._silent_frame_count = silent_frames_sent
+                    if silent_frames_sent % 100 == 0:
+                        logger.warning(f"[TX_WEB] 发送静音帧: {silent_frames_sent}")
+
                 pcm_array = np.frombuffer(pcm_bytes, dtype=np.int16)
+                if len(pcm_array) < FRAME_SIZE:
+                    continue
 
-                from audio_codec import FRAME_SIZE
-                offset = 0
-                while offset + FRAME_SIZE <= len(pcm_array):
-                    # 确保内存连续 (numpy slice view 可能不连续)
-                    frame = np.ascontiguousarray(pcm_array[offset:offset + FRAME_SIZE])
+                frame = np.ascontiguousarray(pcm_array[:FRAME_SIZE])
 
-                    # 首帧到达时开始 TX 录音
-                    if not self._tx_web_recording_started and self._tx_web_recorder:
-                        self._tx_web_recorder.on_speaker_start(self._tx_web_uid, self._tx_web_name)
-                        self._tx_web_recording_started = True
-                        logger.info(f"[TX_WEB] TX 录音已开始 (uid={self._tx_web_uid})")
+                # 首帧到达时开始 TX 录音
+                if not self._tx_web_recording_started and self._tx_web_recorder:
+                    self._tx_web_recorder.on_speaker_start(self._tx_web_uid, self._tx_web_name)
+                    self._tx_web_recording_started = True
+                    logger.info(f"[TX_WEB] TX 录音已开始 (uid={self._tx_web_uid})")
 
-                    # 写入 TX 录音器
-                    if self._tx_web_recorder:
-                        self._tx_web_recorder.write_pcm(self._tx_web_uid, frame.tobytes())
+                # 写入 TX 录音器
+                if self._tx_web_recorder:
+                    self._tx_web_recorder.write_pcm(self._tx_web_uid, frame.tobytes())
 
-                    # Opus 编码 + RTP 发射
-                    opus_data = self._tx_web_encoder.encode(frame)
-                    if opus_data:
-                        is_first = self._tx_first_packet
-                        if is_first:
-                            self._tx_first_packet = False
+                # 20ms 时钟节拍 — 确保 RTP 包间距稳定
+                now = time.monotonic()
+                if send_clock is None:
+                    send_clock = now
+                else:
+                    wait = send_clock - now
+                    if wait > 0.001:
+                        time.sleep(wait)
+                    elif wait < -0.5:
+                        # 落后太多，重置
+                        send_clock = now
 
-                        self.send_audio(opus_data, marker=is_first)
-                        self._tx_frame_count += 1
+                # Opus 编码 + RTP 发射
+                opus_data = self._tx_web_encoder.encode(frame)
+                if opus_data:
+                    is_first = self._tx_first_packet
+                    if is_first:
+                        self._tx_first_packet = False
+                    self.send_audio(opus_data, marker=is_first)
+                    self._tx_frame_count += 1
+                    frames_in_last_second += 1
 
-                        if self._tx_frame_count % 50 == 0:
-                            elapsed = self._tx_frame_count * 0.02
-                            logger.info(f"[TX_WEB] 发射进度: {elapsed:.1f}s, {self._tx_frame_count} 帧")
+                # 推进时钟
+                send_clock += FRAME_INTERVAL
 
-                    offset += FRAME_SIZE
+                # 每 50 帧记录统计
+                if self._tx_frame_count % 50 == 0:
+                    now_t = time.time()
+                    dt = now_t - last_log_time
+                    fps = frames_in_last_second / max(0.001, dt)
+                    qd = self._tx_web_pcm_queue.qsize()
+                    logger.info(f"[TX_WEB] 进度: {self._tx_frame_count * 0.02:.1f}s, "
+                              f"{self._tx_frame_count} 帧, 队列={qd}, 帧率={fps:.0f}fps")
+                    frames_in_last_second = 0
+                    last_log_time = now_t
 
             except Exception as e:
-                logger.error(f"[TX_WEB] feed_web_pcm 异常: {e}")
+                logger.error(f"[TX_WEB] 编码线程异常: {e}")
                 import traceback
                 logger.debug(traceback.format_exc())
+                send_clock = None
+                time.sleep(0.1)
 
     def stop_transmit_web(self):
         """停止 Web 端发射，结束 TX 录音。不销毁编码器（复用）。"""
@@ -2154,7 +2311,8 @@ class AudioStreamListener:
 
         with self._transmit_lock:
             current_state = getattr(self, '_tx_state', self._TransmitState.IDLE)
-            if current_state != self._TransmitState.TRANSMITTING:
+            # 允许 BUFFERING 和 TRANSMITTING 状态都能停止
+            if current_state not in (self._TransmitState.TRANSMITTING, self._TransmitState.BUFFERING):
                 return
             self._tx_state = self._TransmitState.STOPPING
 

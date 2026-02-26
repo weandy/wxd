@@ -1,0 +1,216 @@
+{% extends "layout.html" %}
+{% set active_page = 'channels' %}
+
+{% block title %}频道管理 - BSHT Bot{% endblock %}
+{% block page_title %}频道管理{% endblock %}
+
+{% block page_content %}
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">Bot 状态</div>
+        <div class="stat-value">
+            <span class="status-dot online"></span>
+            <span>在线</span>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">当前频道</div>
+        <div class="stat-value" id="currentChannel">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">在线人数</div>
+        <div class="stat-value" id="onlineCount">--</div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3>频道列表</h3>
+        <button class="btn btn-primary" onclick="showAddModal()">+ 添加频道</button>
+    </div>
+    <div class="card-body">
+        <div id="channelList">
+            <div class="loading"><div class="spinner"></div></div>
+        </div>
+    </div>
+</div>
+
+<!-- 添加/编辑模态框 -->
+<div class="modal" id="channelModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="modalTitle">添加频道</h3>
+            <button class="btn btn-ghost" onclick="closeChannelModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <form id="channelForm">
+                <input type="hidden" id="channelId">
+                <div class="form-group">
+                    <label class="form-label">频道ID *</label>
+                    <input type="number" class="form-control" id="channelIdInput" required placeholder="如: 62793">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">频道名称</label>
+                    <input type="text" class="form-control" id="channelName" placeholder="如: 私有测试">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">频道密码</label>
+                    <input type="number" class="form-control" id="channelPasscode" placeholder="默认: 0">
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="autoJoin" checked> 自动加入
+                    </label>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeChannelModal()">取消</button>
+            <button class="btn btn-primary" onclick="saveChannel()">保存</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let channels = [];
+
+// 加载频道列表
+async function loadChannels() {
+    try {
+        const data = await apiRequest('/api/channels');
+        channels = data.items || [];
+        renderChannels();
+        loadBotStatus();
+    } catch (e) {
+        document.getElementById('channelList').innerHTML = `<div class="empty-state">加载失败: ${e.message}</div>`;
+    }
+}
+
+// 渲染频道列表
+function renderChannels() {
+    if (channels.length === 0) {
+        document.getElementById('channelList').innerHTML = '<div class="empty-state">暂无频道，请添加</div>';
+        return;
+    }
+
+    let html = `<table class="table">
+        <thead>
+            <tr>
+                <th>频道ID</th>
+                <th>名称</th>
+                <th>密码</th>
+                <th>自动加入</th>
+                <th>创建时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>`;
+
+    channels.forEach(ch => {
+        html += `<tr>
+            <td>${ch.channel_id}</td>
+            <td>${ch.name || '-'}</td>
+            <td>${ch.passcode || 0}</td>
+            <td>${ch.auto_join ? '<span class="badge badge-success">是</span>' : '<span class="badge badge-warning">否</span>'}</td>
+            <td>${formatDate(ch.created_at)}</td>
+            <td>
+                <button class="btn btn-sm btn-ghost" onclick="editChannel(${ch.id})">编辑</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteChannel(${ch.id})">删除</button>
+            </td>
+        </tr>`;
+    });
+
+    html += '</tbody></table>';
+    document.getElementById('channelList').innerHTML = html;
+}
+
+// 加载 Bot 状态
+async function loadBotStatus() {
+    try {
+        const data = await apiRequest('/api/bot/status');
+        document.getElementById('currentChannel').textContent = data.channel_name || data.channel_id || '-';
+        document.getElementById('onlineCount').textContent = data.online_count || '-';
+    } catch (e) {
+        console.error('获取Bot状态失败:', e);
+    }
+}
+
+// 显示添加模态框
+function showAddModal() {
+    document.getElementById('modalTitle').textContent = '添加频道';
+    document.getElementById('channelId').value = '';
+    document.getElementById('channelForm').reset();
+    document.getElementById('channelModal').classList.add('show');
+}
+
+// 编辑频道
+function editChannel(id) {
+    const ch = channels.find(c => c.id === id);
+    if (!ch) return;
+
+    document.getElementById('modalTitle').textContent = '编辑频道';
+    document.getElementById('channelId').value = ch.id;
+    document.getElementById('channelIdInput').value = ch.channel_id;
+    document.getElementById('channelName').value = ch.name || '';
+    document.getElementById('channelPasscode').value = ch.passcode || 0;
+    document.getElementById('autoJoin').checked = ch.auto_join;
+    document.getElementById('channelModal').classList.add('show');
+}
+
+// 关闭模态框
+function closeChannelModal() {
+    document.getElementById('channelModal').classList.remove('show');
+}
+
+// 保存频道
+async function saveChannel() {
+    const id = document.getElementById('channelId').value;
+    const channel_id = document.getElementById('channelIdInput').value;
+    const name = document.getElementById('channelName').value;
+    const passcode = document.getElementById('channelPasscode').value;
+    const auto_join = document.getElementById('autoJoin').checked;
+
+    if (!channel_id) {
+        alert('请输入频道ID');
+        return;
+    }
+
+    try {
+        const url = id ? `/api/channels/${id}` : '/api/channels';
+        const method = id ? 'PUT' : 'POST';
+
+        await apiRequest(url, {
+            method,
+            body: JSON.stringify({
+                channel_id: parseInt(channel_id),
+                name,
+                passcode: parseInt(passcode) || 0,
+                auto_join
+            })
+        });
+
+        closeChannelModal();
+        loadChannels();
+    } catch (e) {
+        alert('保存失败: ' + e.message);
+    }
+}
+
+// 删除频道
+async function deleteChannel(id) {
+    if (!await confirm('确定要删除这个频道吗？')) return;
+
+    try {
+        await apiRequest(`/api/channels/${id}`, { method: 'DELETE' });
+        loadChannels();
+    } catch (e) {
+        alert('删除失败: ' + e.message);
+    }
+}
+
+// 页面加载
+loadChannels();
+</script>
+{% endblock %}

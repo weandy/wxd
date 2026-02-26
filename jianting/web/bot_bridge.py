@@ -26,6 +26,13 @@ def set_bot_listener(listener):
     _bot_listener = listener
     logger.info(f"[BotBridge] listener 已注册: {type(listener).__name__}")
 
+    # 注册 WebRTC 音频处理器
+    try:
+        from web.routes.webrtc import set_audio_handler
+        set_audio_handler(listener)
+    except Exception as e:
+        logger.warning(f"[BotBridge] 注册 WebRTC 处理器失败: {e}")
+
 
 def get_bot_listener():
     """获取 Bot listener (由 websocket.py 调用)"""

@@ -1,0 +1,458 @@
+{% extends "layout.html" %}
+{% set active_page = 'scheduled_tasks' %}
+
+{% block title %}定时任务 - BSHT Bot{% endblock %}
+{% block page_title %}定时任务管理{% endblock %}
+
+{% block page_actions %}
+<button class="btn btn-primary" onclick="showAddModal()">+ 添加任务</button>
+{% endblock %}
+
+{% block page_content %}
+<div class="card">
+    <div class="card-header">
+        <h3>定时任务列表</h3>
+    </div>
+    <div class="card-body">
+        <div id="taskList">
+            <div class="loading"><div class="spinner"></div></div>
+        </div>
+    </div>
+</div>
+
+<!-- 添加/编辑模态框 -->
+<div class="modal" id="taskModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="modalTitle">添加定时任务</h3>
+            <button class="btn btn-ghost" onclick="closeTaskModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <form id="taskForm">
+                <input type="hidden" id="taskId">
+                <div class="form-group">
+                    <label class="form-label">任务名称 *</label>
+                    <input type="text" class="form-control" id="taskName" required placeholder="如：每日早间播报">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">选择频道 *</label>
+                    <select class="form-control" id="taskChannel" required>
+                        <option value="">请选择频道</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">选择音频 *</label>
+                    <select class="form-control" id="taskAudio" required>
+                        <option value="">请选择音频</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">触发类型</label>
+                    <select class="form-control" id="taskTriggerType" onchange="updateScheduleFields()">
+                        <option value="fixed">固定时间</option>
+                        <option value="interval">间隔触发</option>
+                        <option value="cron">Cron 表达式</option>
+                    </select>
+                </div>
+                <!-- 固定时间配置 -->
+                <div id="fixedConfig" class="schedule-config">
+                    <div class="form-group">
+                        <label class="form-label">执行时间 (HH:MM)</label>
+                        <input type="time" class="form-control" id="taskTime" value="09:00">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">执行日期</label>
+                        <div>
+                            <label style="display:inline-flex;align-items:center;margin-right:10px;">
+                                <input type="checkbox" id="taskMon" checked style="margin-right:5px;"> 一
+                            </label>
+                            <label style="display:inline-flex;align-items:center;margin-right:10px;">
+                                <input type="checkbox" id="taskTue" checked style="margin-right:5px;"> 二
+                            </label>
+                            <label style="display:inline-flex;align-items:center;margin-right:10px;">
+                                <input type="checkbox" id="taskWed" checked style="margin-right:5px;"> 三
+                            </label>
+                            <label style="display:inline-flex;align-items:center;margin-right:10px;">
+                                <input type="checkbox" id="taskThu" checked style="margin-right:5px;"> 四
+                            </label>
+                            <label style="display:inline-flex;align-items:center;margin-right:10px;">
+                                <input type="checkbox" id="taskFri" checked style="margin-right:5px;"> 五
+                            </label>
+                            <label style="display:inline-flex;align-items:center;margin-right:10px;">
+                                <input type="checkbox" id="taskSat" style="margin-right:5px;"> 六
+                            </label>
+                            <label style="display:inline-flex;align-items:center;">
+                                <input type="checkbox" id="taskSun" style="margin-right:5px;"> 日
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <!-- 间隔触发配置 -->
+                <div id="intervalConfig" class="schedule-config" style="display:none;">
+                    <div class="form-group">
+                        <label class="form-label">间隔 (分钟)</label>
+                        <input type="number" class="form-control" id="taskInterval" value="60" min="1">
+                    </div>
+                </div>
+                <!-- Cron 配置 -->
+                <div id="cronConfig" class="schedule-config" style="display:none;">
+                    <div class="form-group">
+                        <label class="form-label">Cron 表达式</label>
+                        <input type="text" class="form-control" id="taskCron" placeholder="0 9 * * *">
+                        <small class="text-muted">格式: 分 时 日 月 周 (如: 0 9 * * 1-5)</small>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">时间窗口 (可选)</label>
+                    <div style="display:flex;gap:10px;">
+                        <input type="time" class="form-control" id="taskWindowStart" placeholder="开始时间">
+                        <span style="align-self:center;">-</span>
+                        <input type="time" class="form-control" id="taskWindowEnd" placeholder="结束时间">
+                    </div>
+                    <small class="text-muted">在此时间范围内才会执行</small>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="taskEnabled" checked> 启用任务
+                    </label>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="closeTaskModal()">取消</button>
+            <button class="btn btn-primary" onclick="saveTask()">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 日志模态框 -->
+<div class="modal" id="logModal">
+    <div class="modal-content" style="max-width:700px;">
+        <div class="modal-header">
+            <h3>执行日志</h3>
+            <button class="btn btn-ghost" onclick="closeLogModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <div id="logList">
+                <div class="loading"><div class="spinner"></div></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let tasks = [];
+let channels = [];
+let audioFiles = [];
+
+// 加载任务列表
+async function loadTasks() {
+    try {
+        const data = await BSHTApp.get('/api/scheduled-tasks');
+        tasks = data.items || [];
+        renderTasks();
+    } catch (e) {
+        document.getElementById('taskList').innerHTML = `<div class="empty-state">加载失败: ${e.message}</div>`;
+    }
+}
+
+// 加载频道列表
+async function loadChannels() {
+    try {
+        const data = await BSHTApp.get('/api/channels');
+        channels = data.items || [];
+        const select = document.getElementById('taskChannel');
+        select.innerHTML = '<option value="">请选择频道</option>' +
+            channels.map(c => `<option value="${c.channel_id}">${c.name || c.channel_id}</option>`).join('');
+    } catch (e) {
+        console.error('加载频道失败:', e);
+    }
+}
+
+// 加载音频列表
+async function loadAudioFiles() {
+    try {
+        const data = await BSHTApp.get('/api/audio-library');
+        audioFiles = data.items || [];
+        const select = document.getElementById('taskAudio');
+        select.innerHTML = '<option value="">请选择音频</option>' +
+            audioFiles.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
+    } catch (e) {
+        console.error('加载音频失败:', e);
+    }
+}
+
+// 渲染任务列表
+function renderTasks() {
+    if (tasks.length === 0) {
+        document.getElementById('taskList').innerHTML = '<div class="empty-state">暂无定时任务</div>';
+        return;
+    }
+
+    let html = `<table class="table">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>任务名称</th>
+                <th>频道</th>
+                <th>音频</th>
+                <th>触发类型</th>
+                <th>时间配置</th>
+                <th>状态</th>
+                <th>下次执行</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>`;
+
+    tasks.forEach(t => {
+        const config = parseScheduleConfig(t);
+        const timeDisplay = formatScheduleDisplay(t.trigger_type, config);
+        const nextRun = t.next_run_at ? formatDate(t.next_run_at) : '-';
+
+        html += `<tr>
+            <td>${t.id}</td>
+            <td>${t.name}</td>
+            <td>${t.channel_id}</td>
+            <td>${t.audio_name || t.audio_id}</td>
+            <td>${getTriggerTypeLabel(t.trigger_type)}</td>
+            <td>${timeDisplay}</td>
+            <td>
+                <span class="badge badge-${t.enabled ? 'success' : 'warning'}">
+                    ${t.enabled ? '启用' : '禁用'}
+                </span>
+            </td>
+            <td>${nextRun}</td>
+            <td>
+                <button class="btn btn-sm btn-ghost" onclick="toggleTask(${t.id}, ${!t.enabled})">
+                    ${t.enabled ? '禁用' : '启用'}
+                </button>
+                <button class="btn btn-sm btn-ghost" onclick="editTask(${t.id})">编辑</button>
+                <button class="btn btn-sm btn-ghost" onclick="viewLogs(${t.id})">日志</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteTask(${t.id})">删除</button>
+            </td>
+        </tr>`;
+    });
+
+    html += '</tbody></table>';
+    document.getElementById('taskList').innerHTML = html;
+}
+
+// 解析计划配置
+function parseScheduleConfig(task) {
+    try {
+        return JSON.parse(task.schedule_config || '{}');
+    } catch {
+        return {};
+    }
+}
+
+// 格式化计划显示
+function formatScheduleDisplay(type, config) {
+    if (type === 'fixed') {
+        return config.time || '--:--';
+    } else if (type === 'interval') {
+        return `每 ${config.interval || 60} 分钟`;
+    } else if (type === 'cron') {
+        return config.cron || '--';
+    }
+    return '-';
+}
+
+// 获取触发类型标签
+function getTriggerTypeLabel(type) {
+    const labels = { 'fixed': '固定时间', 'interval': '间隔触发', 'cron': 'Cron' };
+    return labels[type] || type;
+}
+
+// 更新计划配置字段显示
+function updateScheduleFields() {
+    const type = document.getElementById('taskTriggerType').value;
+    document.getElementById('fixedConfig').style.display = type === 'fixed' ? 'block' : 'none';
+    document.getElementById('intervalConfig').style.display = type === 'interval' ? 'block' : 'none';
+    document.getElementById('cronConfig').style.display = type === 'cron' ? 'block' : 'none';
+}
+
+// 显示添加模态框
+async function showAddModal() {
+    document.getElementById('modalTitle').textContent = '添加定时任务';
+    document.getElementById('taskId').value = '';
+    document.getElementById('taskForm').reset();
+    document.getElementById('taskEnabled').checked = true;
+    document.getElementById('taskTime').value = '09:00';
+    document.getElementById('taskInterval').value = 60;
+    // 默认选中所有工作日
+    ['Mon','Tue','Wed','Thu','Fri'].forEach(d => document.getElementById('task' + d).checked = true);
+    ['Sat','Sun'].forEach(d => document.getElementById('task' + d).checked = false);
+    updateScheduleFields();
+    await loadChannels();
+    await loadAudioFiles();
+    document.getElementById('taskModal').classList.add('show');
+}
+
+// 编辑任务
+async function editTask(id) {
+    const t = tasks.find(task => task.id === id);
+    if (!t) return;
+
+    await loadChannels();
+    await loadAudioFiles();
+
+    document.getElementById('modalTitle').textContent = '编辑定时任务';
+    document.getElementById('taskId').value = t.id;
+    document.getElementById('taskName').value = t.name;
+    document.getElementById('taskChannel').value = t.channel_id;
+    document.getElementById('taskAudio').value = t.audio_id;
+    document.getElementById('taskTriggerType').value = t.trigger_type || 'fixed';
+    document.getElementById('taskEnabled').checked = t.enabled;
+    document.getElementById('taskWindowStart').value = t.time_window_start || '';
+    document.getElementById('taskWindowEnd').value = t.time_window_end || '';
+
+    // 解析配置
+    const config = parseScheduleConfig(t);
+    if (t.trigger_type === 'fixed') {
+        document.getElementById('taskTime').value = config.time || '09:00';
+        if (config.days) {
+            ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach(d => {
+                const cb = document.getElementById('task' + d);
+                if (cb) cb.checked = config.days.includes(d);
+            });
+        }
+    } else if (t.trigger_type === 'interval') {
+        document.getElementById('taskInterval').value = config.interval || 60;
+    } else if (t.trigger_type === 'cron') {
+        document.getElementById('taskCron').value = config.cron || '';
+    }
+
+    updateScheduleFields();
+    document.getElementById('taskModal').classList.add('show');
+}
+
+// 关闭模态框
+function closeTaskModal() {
+    document.getElementById('taskModal').classList.remove('show');
+}
+
+// 保存任务
+async function saveTask() {
+    const id = document.getElementById('taskId').value;
+    const name = document.getElementById('taskName').value;
+    const channel_id = document.getElementById('taskChannel').value;
+    const audio_id = document.getElementById('taskAudio').value;
+    const trigger_type = document.getElementById('taskTriggerType').value;
+    const time_window_start = document.getElementById('taskWindowStart').value;
+    const time_window_end = document.getElementById('taskWindowEnd').value;
+    const enabled = document.getElementById('taskEnabled').checked;
+
+    if (!name || !channel_id || !audio_id) {
+        alert('请填写必要信息');
+        return;
+    }
+
+    // 构建计划配置
+    let schedule_config = {};
+    if (trigger_type === 'fixed') {
+        schedule_config = {
+            time: document.getElementById('taskTime').value,
+            days: ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].filter(d => {
+                const cb = document.getElementById('task' + d);
+                return cb && cb.checked;
+            })
+        };
+    } else if (trigger_type === 'interval') {
+        schedule_config = { interval: parseInt(document.getElementById('taskInterval').value) };
+    } else if (trigger_type === 'cron') {
+        schedule_config = { cron: document.getElementById('taskCron').value };
+    }
+
+    try {
+        const body = {
+            name,
+            channel_id: parseInt(channel_id),
+            audio_id: parseInt(audio_id),
+            trigger_type,
+            schedule_config,
+            time_window_start,
+            time_window_end,
+            enabled
+        };
+
+        if (id) {
+            await BSHTApp.put(`/api/scheduled-tasks/${id}`, body);
+        } else {
+            await BSHTApp.post('/api/scheduled-tasks', body);
+        }
+
+        closeTaskModal();
+        loadTasks();
+    } catch (e) {
+        alert('保存失败: ' + e.message);
+    }
+}
+
+// 切换任务状态
+async function toggleTask(id, enabled) {
+    try {
+        await BSHTApp.post(`/api/scheduled-tasks/${id}/toggle`, { enabled });
+        loadTasks();
+    } catch (e) {
+        alert('操作失败: ' + e.message);
+    }
+}
+
+// 删除任务
+async function deleteTask(id) {
+    if (!await confirm('确定要删除这个定时任务吗？')) return;
+
+    try {
+        await BSHTApp.del(`/api/scheduled-tasks/${id}`);
+        loadTasks();
+    } catch (e) {
+        alert('删除失败: ' + e.message);
+    }
+}
+
+// 查看日志
+async function viewLogs(id) {
+    document.getElementById('logModal').classList.add('show');
+    try {
+        const data = await BSHTApp.get(`/api/scheduled-tasks/${id}/logs`);
+        const logs = data.items || [];
+        const list = document.getElementById('logList');
+
+        if (logs.length === 0) {
+            list.innerHTML = '<div class="empty-state">暂无执行日志</div>';
+            return;
+        }
+
+        list.innerHTML = `<table class="table">
+            <thead>
+                <tr>
+                    <th>执行时间</th>
+                    <th>状态</th>
+                    <th>结果</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${logs.map(l => `<tr>
+                    <td>${formatDate(l.executed_at)}</td>
+                    <td><span class="badge badge-${l.status === 'success' ? 'success' : 'danger'}">${l.status}</span></td>
+                    <td>${l.result || '-'}</td>
+                </tr>`).join('')}
+            </tbody>
+        </table>`;
+    } catch (e) {
+        document.getElementById('logList').innerHTML = `<div class="empty-state">加载失败: ${e.message}</div>`;
+    }
+}
+
+function closeLogModal() {
+    document.getElementById('logModal').classList.remove('show');
+}
+
+// 页面加载
+loadTasks();
+</script>
+{% endblock %}

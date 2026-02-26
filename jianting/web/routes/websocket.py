@@ -1,4 +1,4 @@
-"""WebSocket 路由 - PTT 实时音频传输"""
+"""WebSocket 路由 - PTT 实时音频传输 + Bot 连接"""
 
 import json
 import logging
@@ -71,60 +71,54 @@ authenticated_sessions = {}
 # PTT 发射状态: sid -> True (已通过 ptt:start 验证且正在发射)
 _ptt_active_sessions = {}
 
-# ========== Bot 连接管理 ==========
+# ========== Bot 连接管理 (使用默认 namespace) ==========
 bot_connections = {}  # sid -> bot_info
 
 
-@socketio.on('connect', namespace='/bot')
-def handle_bot_connect():
-    """Bot WebSocket 连接 (无需认证)"""
-    logger.info(f"[Bot WS] 新连接: {request.sid}")
+@socketio.on('bot_connect')
+def handle_bot_connect(data):
+    """Bot 连接 (使用自定义事件，而非 namespace)"""
+    logger.info(f"[Bot WS] Bot 连接: {data}, sid={request.sid}")
     bot_connections[request.sid] = {
         'connected_at': time.time(),
-        'bot_name': 'BSHT Bot'
+        'bot_name': data.get('bot_name', 'BSHT Bot') if data else 'BSHT Bot',
+        'version': data.get('version', '1.0') if data else '1.0'
     }
-    emit('bot:connected', {'sid': request.sid})
+    emit('bot_connected', {'sid': request.sid, 'status': 'ok'})
 
 
-@socketio.on('disconnect', namespace='/bot')
-def handle_bot_disconnect():
-    """Bot WebSocket 断开"""
-    logger.info(f"[Bot WS] 断开: {request.sid}")
-    bot_connections.pop(request.sid, None)
-
-
-@socketio.on('bot:auth', namespace='/bot')
+@socketio.on('bot_auth')
 def handle_bot_auth(data):
     """Bot 认证"""
     logger.info(f"[Bot WS] Bot 认证: {data}")
     if request.sid in bot_connections:
-        bot_connections[request.sid].update(data)
+        bot_connections[request.sid].update(data if data else {})
         bot_connections[request.sid]['authenticated'] = True
-    emit('bot:auth_ok')
+    emit('bot_auth_ok', {'status': 'ok'})
 
 
-@socketio.on('bot:status', namespace='/bot')
+@socketio.on('bot_status')
 def handle_bot_status(data):
     """接收 Bot 状态，转发给浏览器客户端 (namespace='/')"""
     socketio.emit('bot:status', data, namespace='/')
     logger.debug(f"[Bot WS] 转发状态: {data}")
 
 
-@socketio.on('bot:channel', namespace='/bot')
+@socketio.on('bot_channel')
 def handle_bot_channel(data):
     """接收频道状态，转发给浏览器客户端 (namespace='/')"""
     socketio.emit('bot:channel', data, namespace='/')
     logger.info(f"[Bot WS] 转发频道: {data.get('channel_name')}")
 
 
-@socketio.on('bot:recording', namespace='/bot')
+@socketio.on('bot_recording')
 def handle_bot_recording(data):
     """接收新录音，转发给浏览器客户端 (namespace='/')"""
     socketio.emit('bot:recording', data, namespace='/')
     logger.info(f"[Bot WS] 转发录音: {data.get('filename')}")
 
 
-@socketio.on('bot:speaking', namespace='/bot')
+@socketio.on('bot_speaking')
 def handle_bot_speaking(data):
     """接收说话状态，转发给浏览器客户端 (namespace='/')"""
     socketio.emit('bot:speaking', data, namespace='/')

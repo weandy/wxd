@@ -58,10 +58,8 @@
 </div>
 {% endblock %}
 
-{% block scripts %}
+{% block extra_js %}
 <script>
-    const API = window.BSHTApp;
-
     // 检查是否强制改密
     const params = new URLSearchParams(window.location.search);
     if (params.get('force_password') === '1') {
@@ -85,7 +83,7 @@
         }
 
         try {
-            await API.put('/api/auth/password', {
+            await BSHTApp.put('/api/auth/password', {
                 old_password: document.getElementById('oldPassword').value,
                 new_password: newPwd
             });
@@ -110,7 +108,7 @@
         status.textContent = '正在发送重启指令...';
 
         try {
-            await API.post('/api/bot/restart');
+            await BSHTApp.post('/api/bot/restart');
             status.textContent = '重启指令已发送';
         } catch (e) {
             status.textContent = '发送失败: ' + (e.message || '未知错误');

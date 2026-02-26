@@ -1,0 +1,219 @@
+{% extends "layout.html" %}
+{% set active_page = 'monitor' %}
+
+{% block title %}系统监控 - BSHT Bot{% endblock %}
+{% block page_title %}系统监控{% endblock %}
+
+{% block page_content %}
+<!-- 系统状态卡片 -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">CPU 使用率</div>
+        <div class="stat-value" id="cpuPercent">--%</div>
+        <div class="progress-bar">
+            <div class="progress-fill" id="cpuBar" style="width:0%"></div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">内存使用</div>
+        <div class="stat-value" id="memoryPercent">--%</div>
+        <div class="progress-bar">
+            <div class="progress-fill" id="memoryBar" style="width:0%"></div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">磁盘使用</div>
+        <div class="stat-value" id="diskPercent">--%</div>
+        <div class="progress-bar">
+            <div class="progress-fill" id="diskBar" style="width:0%"></div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">进程内存</div>
+        <div class="stat-value" id="processMemory">-- MB</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">进程 CPU</div>
+        <div class="stat-value" id="processCpu">--%</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">进程 PID</div>
+        <div class="stat-value" id="processPid">--</div>
+    </div>
+</div>
+
+<!-- 详细信息 -->
+<div class="card">
+    <div class="card-header">
+        <h3>系统信息</h3>
+        <button class="btn btn-sm btn-primary" onclick="loadSystemInfo()">刷新</button>
+    </div>
+    <div class="card-body">
+        <div id="systemInfo">
+            <div class="loading"><div class="spinner"></div></div>
+        </div>
+    </div>
+</div>
+
+<!-- 日志查看 -->
+<div class="card">
+    <div class="card-header">
+        <h3>系统日志</h3>
+        <button class="btn btn-sm btn-ghost" onclick="loadLogs()">刷新</button>
+    </div>
+    <div class="card-body">
+        <div class="form-group" style="margin-bottom:15px;">
+            <select class="form-control" id="logFileSelect" style="max-width:300px;">
+                <option value="">选择日志文件</option>
+            </select>
+        </div>
+        <div id="logContent" style="background:#1e1e1e;color:#d4d4d4;padding:15px;border-radius:8px;font-family:monospace;font-size:13px;max-height:400px;overflow:auto;white-space:pre-wrap;word-break:break-all;">
+            <span class="text-muted">请选择日志文件</span>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.progress-bar {
+    margin-top: 10px;
+}
+.progress-fill {
+    transition: width 0.3s ease;
+}
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let refreshInterval = null;
+
+// 加载系统状态
+async function loadStatus() {
+    try {
+        const data = await BSHTApp.get('/api/system/status');
+
+        // 更新 CPU
+        document.getElementById('cpuPercent').textContent = data.cpu_percent.toFixed(1) + '%';
+        document.getElementById('cpuBar').style.width = data.cpu_percent + '%';
+
+        // 更新内存
+        const memUsed = (data.memory_used_mb / 1024).toFixed(1);
+        const memTotal = (data.memory_total_mb / 1024).toFixed(1);
+        document.getElementById('memoryPercent').textContent = `${memUsed}GB / ${memTotal}GB (${data.memory_percent.toFixed(1)}%)`;
+        document.getElementById('memoryBar').style.width = data.memory_percent + '%';
+
+        // 更新磁盘
+        const diskUsed = data.disk_used_gb.toFixed(1);
+        const diskTotal = data.disk_total_gb.toFixed(1);
+        document.getElementById('diskPercent').textContent = `${diskUsed}GB / ${diskTotal}GB (${data.disk_percent.toFixed(1)}%)`;
+        document.getElementById('diskBar').style.width = data.disk_percent + '%';
+
+        // 更新进程信息
+        document.getElementById('processMemory').textContent = data.process.memory_mb.toFixed(1) + ' MB';
+        document.getElementById('processCpu').textContent = data.process.cpu_percent.toFixed(1) + '%';
+        document.getElementById('processPid').textContent = data.process.pid;
+
+        // 根据使用率设置颜色
+        updateProgressColor('cpuBar', data.cpu_percent);
+        updateProgressColor('memoryBar', data.memory_percent);
+        updateProgressColor('diskBar', data.disk_percent);
+
+    } catch (e) {
+        console.error('加载状态失败:', e);
+    }
+}
+
+// 根据百分比设置进度条颜色
+function updateProgressColor(id, percent) {
+    const el = document.getElementById(id);
+    if (percent > 90) {
+        el.style.background = 'var(--danger)';
+    } else if (percent > 70) {
+        el.style.background = 'var(--warning)';
+    } else {
+        el.style.background = 'var(--primary)';
+    }
+}
+
+// 加载系统信息
+async function loadSystemInfo() {
+    try {
+        const data = await BSHTApp.get('/api/system/info');
+        const info = document.getElementById('systemInfo');
+
+        let html = `<table class="table">
+            <tr><td style="width:150px;">平台</td><td>${data.platform}</td></tr>
+            <tr><td>主机名</td><td>${data.hostname}</td></tr>
+            <tr><td>Python 版本</td><td>${data.python_version.split(' ')[0]}</td></tr>
+        </table>`;
+        info.innerHTML = html;
+    } catch (e) {
+        document.getElementById('systemInfo').innerHTML = `<div class="empty-state">加载失败: ${e.message}</div>`;
+    }
+}
+
+// 加载日志文件列表
+async function loadLogFiles() {
+    try {
+        const data = await BSHTApp.get('/api/system/logs');
+        const select = document.getElementById('logFileSelect');
+        select.innerHTML = '<option value="">选择日志文件</option>';
+
+        Object.keys(data).forEach(filename => {
+            const option = document.createElement('option');
+            option.value = filename;
+            option.textContent = filename;
+            select.appendChild(option);
+        });
+
+        select.onchange = function() {
+            if (this.value) {
+                document.getElementById('logContent').textContent = data[this.value] || '日志为空';
+            } else {
+                document.getElementById('logContent').innerHTML = '<span class="text-muted">请选择日志文件</span>';
+            }
+        };
+    } catch (e) {
+        console.error('加载日志文件失败:', e);
+    }
+}
+
+// 加载日志
+async function loadLogs() {
+    const filename = document.getElementById('logFileSelect').value;
+    if (!filename) {
+        await loadLogFiles();
+        return;
+    }
+
+    try {
+        const data = await BSHTApp.get('/api/system/logs');
+        document.getElementById('logContent').textContent = data[filename] || '日志为空';
+    } catch (e) {
+        document.getElementById('logContent').textContent = '加载失败: ' + e.message;
+    }
+}
+
+// 启动定时刷新
+function startAutoRefresh() {
+    loadStatus();
+    loadSystemInfo();
+    loadLogFiles();
+
+    // 每5秒刷新一次状态
+    refreshInterval = setInterval(loadStatus, 5000);
+}
+
+// 页面卸载时停止刷新
+window.addEventListener('beforeunload', () => {
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+    }
+});
+
+// 初始化
+startAutoRefresh();
+</script>
+{% endblock %}

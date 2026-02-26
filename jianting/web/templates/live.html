@@ -1,0 +1,788 @@
+{% extends "layout.html" %}
+{% set active_page = 'live' %}
+
+{% block title %}实时收发 - BSHT Bot{% endblock %}
+
+{% block head %}
+<style>
+    /* ==================== 蒙层 ==================== */
+    .audio-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        background: rgba(0, 0, 0, 0.85);
+        backdrop-filter: blur(8px);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: opacity 0.4s ease;
+    }
+
+    .audio-overlay.hidden {
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    .overlay-icon {
+        font-size: 64px;
+        margin-bottom: 20px;
+        animation: pulse 2s infinite;
+    }
+
+    .overlay-title {
+        font-size: 24px;
+        font-weight: 600;
+        margin-bottom: 8px;
+        color: #fff;
+    }
+
+    .overlay-hint {
+        font-size: 14px;
+        color: rgba(255, 255, 255, 0.6);
+    }
+
+    @keyframes pulse {
+
+        0%,
+        100% {
+            transform: scale(1);
+            opacity: 1;
+        }
+
+        50% {
+            transform: scale(1.1);
+            opacity: 0.8;
+        }
+    }
+
+    /* ==================== 状态面板 ==================== */
+    .status-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+
+    .status-card {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 10px;
+        padding: 14px 16px;
+    }
+
+    .status-label {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.45);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 6px;
+    }
+
+    .status-value {
+        font-size: 18px;
+        font-weight: 600;
+        color: #e4e6eb;
+    }
+
+    /* ==================== 实时音频区 ==================== */
+    .audio-panel {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+
+    .audio-panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+    }
+
+    .audio-panel-title {
+        font-size: 16px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .listen-status {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.5);
+    }
+
+    .speaker-area {
+        min-height: 40px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 16px;
+    }
+
+    .speaker-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(76, 175, 80, 0.15);
+        border: 1px solid rgba(76, 175, 80, 0.3);
+        border-radius: 20px;
+        padding: 4px 12px;
+        font-size: 13px;
+        color: #81c784;
+        animation: fadeIn 0.3s ease;
+    }
+
+    .speaker-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #4caf50;
+        animation: blink 1s infinite;
+    }
+
+    @keyframes blink {
+
+        0%,
+        100% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.3;
+        }
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(-4px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .text-muted {
+        color: rgba(255, 255, 255, 0.3);
+        font-size: 13px;
+    }
+
+    /* ==================== PTT 按钮 ==================== */
+    .ptt-area {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+    }
+
+    .ptt-btn {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        border: 2px solid rgba(255, 255, 255, 0.15);
+        background: rgba(255, 255, 255, 0.06);
+        color: #e4e6eb;
+        font-size: 22px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+        user-select: none;
+        -webkit-user-select: none;
+    }
+
+    .ptt-btn:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.25);
+    }
+
+    .ptt-btn:active,
+    .ptt-btn.active {
+        background: rgba(244, 67, 54, 0.3);
+        border-color: #f44336;
+        box-shadow: 0 0 20px rgba(244, 67, 54, 0.3);
+        transform: scale(0.95);
+    }
+
+    .ptt-info {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.5);
+    }
+
+    .ptt-info .ptt-status {
+        font-size: 14px;
+        color: #e4e6eb;
+        font-weight: 500;
+    }
+
+    /* ==================== 录音列表 ==================== */
+    .recordings-panel {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        padding: 20px;
+    }
+
+    .recordings-header {
+        font-size: 16px;
+        font-weight: 600;
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .recordings-header span {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .rec-count {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.35);
+        font-weight: 400;
+    }
+
+    .recording-item {
+        background: rgba(255, 255, 255, 0.025);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 10px;
+        padding: 12px 14px;
+        margin-bottom: 8px;
+        transition: background 0.2s;
+    }
+
+    .recording-item:last-child {
+        margin-bottom: 0;
+    }
+
+    .recording-item:hover {
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    .rec-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        cursor: pointer;
+        padding: 2px 0;
+    }
+
+    .rec-meta {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        font-size: 13px;
+        flex-wrap: wrap;
+    }
+
+    .rec-time {
+        color: rgba(255, 255, 255, 0.4);
+        font-variant-numeric: tabular-nums;
+        font-size: 12px;
+    }
+
+    .rec-speaker {
+        color: #81c784;
+        font-weight: 500;
+    }
+
+    .rec-channel {
+        color: rgba(255, 255, 255, 0.3);
+        font-size: 11px;
+        background: rgba(255, 255, 255, 0.05);
+        padding: 1px 6px;
+        border-radius: 4px;
+    }
+
+    .rec-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+    }
+
+    .rec-duration {
+        color: rgba(255, 255, 255, 0.35);
+        font-size: 12px;
+        background: rgba(255, 255, 255, 0.06);
+        padding: 2px 8px;
+        border-radius: 10px;
+    }
+
+    .rec-play-btn {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        background: rgba(255, 255, 255, 0.06);
+        color: #e4e6eb;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.15s;
+    }
+
+    .rec-play-btn:hover {
+        background: rgba(74, 144, 217, 0.2);
+        border-color: rgba(74, 144, 217, 0.4);
+    }
+
+    .rec-text-preview {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.5);
+        margin-top: 6px;
+        line-height: 1.4;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
+
+    .rec-no-text {
+        color: rgba(255, 255, 255, 0.2);
+        font-style: italic;
+    }
+
+    /* 展开详情 */
+    .rec-expand {
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .recording-item.expanded {
+        background: rgba(255, 255, 255, 0.05);
+        border-color: rgba(74, 144, 217, 0.2);
+    }
+
+    .rec-text-full {
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.65);
+        line-height: 1.6;
+        margin-bottom: 12px;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+    /* 进度条播放器 */
+    .rec-player-area {
+        margin-top: 8px;
+    }
+
+    .rec-progress-bar {
+        width: 100%;
+        height: 8px;
+        background: rgba(255, 255, 255, 0.12);
+        border-radius: 4px;
+        cursor: pointer;
+        position: relative;
+        overflow: visible;
+    }
+
+    .rec-progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #4a90d9, #67b8f7);
+        border-radius: 4px;
+        width: 0%;
+        transition: width 0.1s linear;
+        position: relative;
+    }
+
+    .rec-progress-fill::after {
+        content: '';
+        position: absolute;
+        right: -5px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #67b8f7;
+        box-shadow: 0 0 4px rgba(74, 144, 217, 0.5);
+    }
+
+    .rec-player-time {
+        display: flex;
+        justify-content: space-between;
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.3);
+        margin-top: 4px;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .loading-dot {
+        animation: blink 0.6s infinite;
+    }
+
+    .rec-empty {
+        text-align: center;
+        padding: 24px;
+        color: rgba(255, 255, 255, 0.25);
+        font-size: 13px;
+    }
+
+    .rec-pagination {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        margin-top: 14px;
+    }
+
+    .rec-page-btn {
+        padding: 6px 14px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 6px;
+        color: rgba(255, 255, 255, 0.6);
+        cursor: pointer;
+        font-size: 12px;
+        transition: all 0.2s;
+    }
+
+    .rec-page-btn:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.1);
+        color: #fff;
+    }
+
+    .rec-page-btn:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+    }
+
+    .rec-page-info {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.35);
+        min-width: 60px;
+        text-align: center;
+    }
+
+    /* ==================== Toast ==================== */
+    .toast {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-size: 13px;
+        z-index: 9999;
+        max-width: 90vw;
+        animation: toastIn 0.3s ease, toastOut 0.3s ease 2.7s forwards;
+    }
+
+    .toast-info {
+        background: rgba(33, 150, 243, 0.9);
+        color: #fff;
+    }
+
+    .toast-error {
+        background: rgba(244, 67, 54, 0.9);
+        color: #fff;
+    }
+
+    .toast-warning {
+        background: rgba(255, 152, 0, 0.9);
+        color: #fff;
+    }
+
+    @keyframes toastIn {
+        from {
+            opacity: 0;
+            transform: translate(-50%, 20px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translate(-50%, 0);
+        }
+    }
+
+    @keyframes toastOut {
+        from {
+            opacity: 1;
+        }
+
+        to {
+            opacity: 0;
+        }
+    }
+
+    /* ==================== 移动端响应式 ==================== */
+    @media (max-width: 768px) {
+        .status-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+
+        .status-card {
+            padding: 10px 12px;
+        }
+
+        .status-value {
+            font-size: 15px;
+        }
+
+        .audio-panel {
+            padding: 14px;
+        }
+
+        .ptt-area {
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            gap: 10px;
+        }
+
+        .ptt-btn {
+            width: 72px;
+            height: 72px;
+            font-size: 28px;
+        }
+
+        .recordings-panel {
+            padding: 14px;
+        }
+
+        .recording-item {
+            padding: 10px 12px;
+        }
+
+        .rec-meta {
+            gap: 6px;
+            font-size: 12px;
+        }
+
+        .overlay-icon {
+            font-size: 48px;
+        }
+
+        .overlay-title {
+            font-size: 20px;
+        }
+
+        .overlay-hint {
+            font-size: 13px;
+            padding: 0 20px;
+            text-align: center;
+        }
+
+        /* 音频库选择器优化 */
+        #audioLibSelect {
+            max-width: 100%;
+            font-size: 13px;
+        }
+
+        #audioLibSelect option {
+            white-space: normal;
+            word-break: break-word;
+            max-width: 100%;
+        }
+    }
+
+    @media (max-width: 480px) {
+        .status-grid {
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .status-card:last-child {
+            grid-column: 1 / -1;
+        }
+
+        .rec-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+        }
+    }
+
+    /* 发射模式切换 */
+    .tx-mode-tabs {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 12px;
+        background: rgba(255, 255, 255, 0.04);
+        border-radius: 8px;
+        padding: 3px;
+    }
+
+    .tx-tab {
+        flex: 1;
+        padding: 6px 0;
+        border: none;
+        background: transparent;
+        color: #9ca3af;
+        font-size: 13px;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .tx-tab.active {
+        background: rgba(74, 144, 217, 0.2);
+        color: #67b8f7;
+    }
+
+    .tx-tab:hover:not(.active) {
+        background: rgba(255, 255, 255, 0.06);
+    }
+
+    .tx-panel {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+
+    #txTextPanel {
+        align-items: stretch;
+    }
+</style>
+{% endblock %}
+
+{% block page_title %}实时收发{% endblock %}
+
+{% block page_content %}
+<!-- 音频解锁蒙层 -->
+<div class="audio-overlay" id="audioOverlay">
+    <div class="overlay-icon">🔊</div>
+    <div class="overlay-title">点击进入监听</div>
+    <div class="overlay-hint">浏览器要求至少一次交互才能播放音频</div>
+</div>
+
+<!-- 频道状态 -->
+<div class="status-grid">
+    <div class="status-card">
+        <div class="status-label">Bot 状态</div>
+        <div class="status-value" id="botRunning">-</div>
+    </div>
+    <div class="status-card">
+        <div class="status-label">监听频道</div>
+        <div class="status-value" id="channelName">-</div>
+    </div>
+    <div class="status-card">
+        <div class="status-label">连接</div>
+        <div class="status-value" id="statusConnected">连接中...</div>
+    </div>
+    <div class="status-card">
+        <div class="status-label">运行时间</div>
+        <div class="status-value" id="uptime">-</div>
+    </div>
+</div>
+
+<!-- 实时音频 -->
+<div class="audio-panel">
+    <div class="audio-panel-header">
+        <div class="audio-panel-title">🎙️ 实时音频</div>
+        <span class="listen-status" id="listenStatus">等待解锁...</span>
+    </div>
+
+    <div class="speaker-area" id="speakerList">
+        <span class="text-muted">无人说话</span>
+    </div>
+
+    <div class="ptt-area">
+        <!-- 发射频道选择 -->
+        <div style="width:100%;margin-bottom:12px;">
+            <label
+                style="font-size:12px;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;display:block;">发射目标频道</label>
+            <select id="txChannelSelect"
+                style="width:100%;background:#1e2330;border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:8px 12px;color:#e4e6eb;font-size:14px;">
+                <option value="" style="background:#1e2330;color:#9ca3af;">加载中...</option>
+            </select>
+        </div>
+
+        <!-- 模式切换 tabs -->
+        <div class="tx-mode-tabs">
+            <button class="tx-tab active" data-mode="voice" onclick="switchTxMode('voice')">🎤 语音</button>
+            <button class="tx-tab" data-mode="text" onclick="switchTxMode('text')">✏️ 文字</button>
+            <button class="tx-tab" data-mode="audio" onclick="switchTxMode('audio')">🔊 音频库</button>
+        </div>
+
+        <!-- 语音 PTT 模式 -->
+        <div class="tx-panel" id="txVoicePanel">
+            <button class="ptt-btn" id="pttBtn" title="按住发射 (空格键)">🎤</button>
+            <div class="ptt-info">
+                <div class="ptt-status" id="pttStatus">就绪</div>
+                <div>按住按钮或空格键发射</div>
+            </div>
+        </div>
+
+        <!-- 文字 TTS 模式 -->
+        <div class="tx-panel" id="txTextPanel" style="display:none">
+            <textarea id="ttsText" rows="3" placeholder="输入要发射的文字（最多500字）..." maxlength="500"
+                style="width:100%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:10px;color:#e4e6eb;font-size:14px;resize:vertical;font-family:inherit;"></textarea>
+            <div style="display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+                <select id="ttsVoice"
+                    style="background:#1e2330;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:5px 8px;color:#e4e6eb;font-size:13px;">
+                    <option value="zh-CN-YunxiNeural" style="background:#1e2330;color:#e4e6eb;">云希-男声</option>
+                    <option value="zh-CN-XiaoxiaoNeural" style="background:#1e2330;color:#e4e6eb;">晓晓-女声</option>
+                    <option value="zh-CN-YunjianNeural" style="background:#1e2330;color:#e4e6eb;">云健-新闻男声</option>
+                    <option value="zh-CN-XiaoyiNeural" style="background:#1e2330;color:#e4e6eb;">晓伊-甜美女声</option>
+                    <option value="zh-CN-YunyangNeural" style="background:#1e2330;color:#e4e6eb;">云扬-标准男声</option>
+                </select>
+                <select id="ttsSpeed"
+                    style="background:#1e2330;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:5px 8px;color:#e4e6eb;font-size:13px;">
+                    <option value="0.8" style="background:#1e2330;color:#e4e6eb;">0.8x 慢速</option>
+                    <option value="1.0" selected style="background:#1e2330;color:#e4e6eb;">1.0x 正常</option>
+                    <option value="1.2" style="background:#1e2330;color:#e4e6eb;">1.2x 稍快</option>
+                    <option value="1.5" style="background:#1e2330;color:#e4e6eb;">1.5x 快速</option>
+                    <option value="2.0" style="background:#1e2330;color:#e4e6eb;">2.0x 极速</option>
+                </select>
+                <button id="ttsBroadcastBtn" onclick="window._sendTTSBroadcast()"
+                    style="margin-left:auto;background:linear-gradient(135deg,#4a90d9,#357abd);color:#fff;border:none;border-radius:8px;padding:8px 20px;font-size:14px;cursor:pointer;transition:all 0.2s;">
+                    📡 发射
+                </button>
+            </div>
+            <div id="ttsStatus" style="margin-top:6px;font-size:12px;color:#9ca3af;min-height:18px;"></div>
+        </div>
+
+        <!-- 音频库发射模式 -->
+        <div class="tx-panel" id="txAudioPanel" style="display:none; width:100%;">
+            <div style="display:flex;gap:10px;align-items:center;width:100%;flex-wrap:wrap;margin-top:8px;">
+                <select id="audioLibSelect" onchange="window._onAudioSelectChange()"
+                    style="flex:1;background:#1e2330;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:8px;color:#e4e6eb;font-size:13px;min-width:0;">
+                    <option value="" style="background:#1e2330;color:#9ca3af;">加载中...</option>
+                </select>
+                <button id="audioPlayBtn" onclick="window._playSelectedAudio()" disabled
+                    style="background:linear-gradient(135deg,#4a90d9,#357abd);color:#fff;border:none;border-radius:8px;padding:8px 20px;font-size:14px;cursor:pointer;transition:all 0.2s;opacity:0.5;flex-shrink:0;">
+                    📡 发射
+                </button>
+            </div>
+            <div id="audioPlayStatus"
+                style="margin-top:6px;font-size:12px;color:#9ca3af;min-height:18px;align-self:flex-start;"></div>
+        </div>
+    </div>
+</div>
+
+<!-- 历史录音 -->
+<div class="recordings-panel">
+    <div class="recordings-header">
+        <span>📜 历史录音</span>
+        <span class="rec-count" id="recCount"></span>
+    </div>
+    <div id="recordingList">
+        <div class="rec-empty">加载中...</div>
+    </div>
+    <div class="rec-pagination">
+        <button class="rec-page-btn" id="prevPageBtn" disabled>← 上一页</button>
+        <span class="rec-page-info" id="pageInfo">1</span>
+        <button class="rec-page-btn" id="nextPageBtn">下一页 →</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/webrtc-transmitter.js') }}"></script>
+<script src="{{ url_for('static', filename='js/audio-monitor.js') }}"></script>
+<script src="{{ url_for('static', filename='js/audio-transmitter.js') }}"></script>
+<script src="{{ url_for('static', filename='js/live.js') }}"></script>
+{% endblock %}

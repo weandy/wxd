@@ -1,0 +1,285 @@
+{% extends "layout.html" %}
+{% set active_page = 'data_maintenance' %}
+
+{% block title %}数据维护 - BSHT Bot{% endblock %}
+{% block page_title %}数据维护{% endblock %}
+
+{% block page_content %}
+<!-- 数据统计 -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">录音记录</div>
+        <div class="stat-value" id="recordingsCount">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">音频库文件</div>
+        <div class="stat-value" id="audioLibraryCount">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">音频库大小</div>
+        <div class="stat-value" id="audioLibrarySize">-- MB</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">用户数量</div>
+        <div class="stat-value" id="usersCount">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">定时任务</div>
+        <div class="stat-value" id="tasksCount">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">今日录音</div>
+        <div class="stat-value" id="todayRecordings">--</div>
+    </div>
+</div>
+
+<!-- 维护操作 -->
+<div class="card">
+    <div class="card-header">
+        <h3>数据清理</h3>
+    </div>
+    <div class="card-body">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;">
+            <!-- 录音清理 -->
+            <div class="maintenance-box">
+                <h4>录音记录清理</h4>
+                <p class="text-muted">删除指定天数之前的录音记录数据库记录（可选同时删除音频文件）</p>
+                <div class="form-group">
+                    <label class="form-label">保留最近</label>
+                    <div style="display:flex;gap:10px;align-items:center;">
+                        <input type="number" class="form-control" id="recordingsDays" value="30" min="1" style="width:80px;">
+                        <span>天</span>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="deleteRecordingFiles"> 同时删除音频文件
+                    </label>
+                </div>
+                <button class="btn btn-danger" onclick="cleanupRecordings()">开始清理</button>
+            </div>
+
+            <!-- 音频库清理 -->
+            <div class="maintenance-box">
+                <h4>音频库清理</h4>
+                <p class="text-muted">清理未使用的音频文件或所有音频</p>
+                <div class="form-group">
+                    <label class="form-label">清理选项</label>
+                    <select class="form-control" id="audioCleanupType">
+                        <option value="unused">仅清理未使用的音频 (使用次数=0)</option>
+                        <option value="all">清理所有音频 (危险!)</option>
+                    </select>
+                </div>
+                <button class="btn btn-danger" onclick="cleanupAudioLibrary()">开始清理</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 数据库维护 -->
+<div class="card">
+    <div class="card-header">
+        <h3>数据库维护</h3>
+    </div>
+    <div class="card-body">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px;">
+            <div class="maintenance-box">
+                <h4>数据库优化</h4>
+                <p class="text-muted">执行 VACUUM 和 ANALYZE 优化数据库性能</p>
+                <button class="btn btn-primary" onclick="optimizeDb()">执行优化</button>
+            </div>
+            <div class="maintenance-box">
+                <h4>数据库修复</h4>
+                <p class="text-muted">检查并修复数据库完整性</p>
+                <button class="btn btn-warning" onclick="repairDb()">检查修复</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 操作日志 -->
+<div class="card">
+    <div class="card-header">
+        <h3>维护日志</h3>
+        <button class="btn btn-sm btn-ghost" onclick="loadLogs()">刷新</button>
+    </div>
+    <div class="card-body">
+        <div id="maintenanceLogs">
+            <div class="loading"><div class="spinner"></div></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.maintenance-box {
+    background: var(--light);
+    padding: 20px;
+    border-radius: 8px;
+}
+.maintenance-box h4 {
+    margin: 0 0 10px 0;
+    font-size: 16px;
+}
+.maintenance-box .form-group {
+    margin-bottom: 15px;
+}
+.log-entry {
+    padding: 10px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.log-entry:last-child {
+    border-bottom: none;
+}
+.log-time {
+    color: var(--gray);
+    font-size: 13px;
+}
+.log-message {
+    flex: 1;
+    margin-left: 15px;
+}
+.log-success { color: var(--success); }
+.log-error { color: var(--danger); }
+.log-warning { color: var(--warning); }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let maintenanceLogs = [];
+
+// 加载统计数据
+async function loadStats() {
+    try {
+        const data = await BSHTApp.get('/api/data-maintenance/stats');
+        document.getElementById('recordingsCount').textContent = data.recordings_count || 0;
+        document.getElementById('audioLibraryCount').textContent = data.audio_library_count || 0;
+        document.getElementById('audioLibrarySize').textContent = (data.audio_library_size_mb || 0) + ' MB';
+        document.getElementById('usersCount').textContent = data.users_count || 0;
+        document.getElementById('tasksCount').textContent = data.scheduled_tasks_count || 0;
+        document.getElementById('todayRecordings').textContent = data.today_recordings || 0;
+    } catch (e) {
+        console.error('加载统计失败:', e);
+    }
+}
+
+// 清理录音记录
+async function cleanupRecordings() {
+    const days = parseInt(document.getElementById('recordingsDays').value);
+    const deleteFiles = document.getElementById('deleteRecordingFiles').checked;
+
+    const msg = deleteFiles
+        ? `将删除 ${days} 天前的所有录音记录和音频文件，确定吗？`
+        : `将删除 ${days} 天前的所有录音记录（保留音频文件），确定吗？`;
+
+    if (!await confirm(msg)) return;
+
+    try {
+        addLog('开始清理录音记录...', 'info');
+        const result = await BSHTApp.post('/api/data-maintenance/cleanup/recordings', {
+            days,
+            delete_files: deleteFiles
+        });
+        addLog(`清理完成: 删除 ${result.deleted_count} 条记录, ${result.deleted_files} 个文件`, 'success');
+        loadStats();
+    } catch (e) {
+        addLog(`清理失败: ${e.message}`, 'error');
+    }
+}
+
+// 清理音频库
+async function cleanupAudioLibrary() {
+    const cleanupType = document.getElementById('audioCleanupType').value;
+    const unusedOnly = cleanupType === 'unused';
+
+    const msg = unusedOnly
+        ? '将删除所有使用次数为 0 的音频文件，确定吗？'
+        : '将删除音频库中的所有文件（包括正在使用的），确定继续吗？';
+
+    if (!await confirm(msg)) return;
+
+    try {
+        addLog('开始清理音频库...', 'info');
+        const result = await BSHTApp.post('/api/data-maintenance/cleanup/audio-library', {
+            unused_only: unusedOnly
+        });
+        addLog(`清理完成: 删除 ${result.deleted_count} 条记录, ${result.deleted_files} 个文件`, 'success');
+        loadStats();
+    } catch (e) {
+        addLog(`清理失败: ${e.message}`, 'error');
+    }
+}
+
+// 数据库优化
+async function optimizeDb() {
+    if (!await confirm('确定执行数据库优化吗？')) return;
+
+    try {
+        addLog('开始优化数据库...', 'info');
+        const result = await BSHTApp.post('/api/data-maintenance/optimize');
+        addLog(result.message || '优化完成', 'success');
+    } catch (e) {
+        addLog(`优化失败: ${e.message}`, 'error');
+    }
+}
+
+// 数据库修复
+async function repairDb() {
+    if (!await confirm('确定执行数据库修复检查吗？')) return;
+
+    try {
+        addLog('开始检查数据库...', 'info');
+        const result = await BSHTApp.post('/api/data-maintenance/repair');
+        if (result.success) {
+            addLog(`数据库完整性检查通过: ${result.result}`, 'success');
+        } else {
+            addLog(`数据库存在问题: ${result.result}`, 'warning');
+        }
+    } catch (e) {
+        addLog(`检查失败: ${e.message}`, 'error');
+    }
+}
+
+// 添加日志
+function addLog(message, type = 'info') {
+    const log = {
+        time: new Date().toLocaleString('zh-CN'),
+        message,
+        type
+    };
+    maintenanceLogs.unshift(log);
+    if (maintenanceLogs.length > 50) {
+        maintenanceLogs.pop();
+    }
+    renderLogs();
+}
+
+// 渲染日志
+function renderLogs() {
+    const el = document.getElementById('maintenanceLogs');
+    if (maintenanceLogs.length === 0) {
+        el.innerHTML = '<div class="empty-state">暂无维护日志</div>';
+        return;
+    }
+
+    el.innerHTML = maintenanceLogs.map(log => `
+        <div class="log-entry">
+            <span class="log-time">${log.time}</span>
+            <span class="log-message log-${log.type}">${log.message}</span>
+        </div>
+    `).join('');
+}
+
+function loadLogs() {
+    renderLogs();
+}
+
+// 初始化
+loadStats();
+</script>
+{% endblock %}
