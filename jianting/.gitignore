@@ -49,3 +49,6 @@ debug_audio.bin
 # Gradle
 .gradle/
 build/
+
+# Git Worktrees
+.worktrees/
