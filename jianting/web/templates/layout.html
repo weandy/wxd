@@ -321,6 +321,193 @@
         .mb-4 { margin-bottom: 20px; }
         .flex { display: flex; }
         .flex-between { display: flex; justify-content: space-between; align-items: center; }
+
+        /* 仪表盘网格 */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        /* 频道详情 */
+        .channel-detail {
+            padding: 10px 0;
+        }
+        .channel-id {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--dark);
+        }
+        .channel-meta {
+            font-size: 13px;
+            color: var(--gray);
+            margin-top: 4px;
+        }
+        .channel-info-loading {
+            color: var(--gray);
+            text-align: center;
+            padding: 20px;
+        }
+
+        /* 活动项 */
+        .activity-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .activity-item:last-child {
+            border-bottom: none;
+        }
+        .activity-time {
+            font-size: 12px;
+            color: var(--gray);
+            width: 60px;
+            flex-shrink: 0;
+        }
+        .activity-content {
+            flex: 1;
+            min-width: 0;
+        }
+        .activity-user {
+            font-weight: 500;
+            color: var(--primary);
+        }
+        .activity-text {
+            color: var(--gray);
+            margin-left: 8px;
+            font-size: 13px;
+        }
+        .activity-duration {
+            font-size: 12px;
+            color: var(--gray);
+            width: 50px;
+            text-align: right;
+            flex-shrink: 0;
+        }
+
+        /* 资源监控 */
+        .resource-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+        }
+        .resource-item {
+            text-align: center;
+        }
+        .resource-label {
+            font-size: 12px;
+            color: var(--gray);
+            margin-bottom: 5px;
+        }
+        .resource-value {
+            font-size: 20px;
+            font-weight: 600;
+        }
+        .progress-fill.danger { background: var(--danger); }
+        .progress-fill.warning { background: var(--warning); }
+
+        /* 表格容器 */
+        .table-container {
+            background: var(--white);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .data-table th, .data-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        .data-table th {
+            background: var(--light);
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--gray);
+        }
+        .data-table tr:hover { background: var(--light); }
+
+        /* 图标按钮 */
+        .btn-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            border: none;
+            border-radius: 6px;
+            background: transparent;
+            color: var(--gray);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-icon:hover {
+            background: var(--light);
+            color: var(--primary);
+        }
+        .btn-icon-danger:hover {
+            background: #fee2e2;
+            color: var(--danger);
+        }
+
+        /* 操作按钮组 */
+        .action-btns {
+            display: flex;
+            gap: 5px;
+        }
+
+        /* 状态徽章 */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .status-badge.online { background: #d1fae5; color: #065f46; }
+        .status-badge.offline { background: #fee2e2; color: #991b1b; }
+
+        /* 文本省略 */
+        .text-ellipsis {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* 错误/成功消息 */
+        .error-message {
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 10px 15px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+        .success-message {
+            background: #d1fae5;
+            color: #065f46;
+            padding: 10px 15px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+
+        /* 按钮变体 */
+        .btn-secondary { background: var(--gray); color: white; }
+        .btn-secondary:hover { background: #4b5563; }
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--dark);
+        }
+        .btn-outline:hover {
+            background: var(--light);
+        }
     </style>
     {% block extra_css %}{% endblock %}
 </head>

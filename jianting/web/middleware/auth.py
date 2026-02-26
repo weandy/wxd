@@ -52,11 +52,21 @@ def token_required(f):
     """API Token 验证装饰器"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # 检查 URL 参数或 Header 中的 token
-        token = request.args.get('token') or request.headers.get('X-API-Token')
+        # 检查 Bearer token、URL 参数或 Header 中的 token
+        auth_header = request.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer '):
+            token = auth_header[7:]
+        else:
+            token = request.args.get('token') or request.headers.get('X-API-Token')
 
         if not token:
             return jsonify({'error': '缺少认证令牌'}), 401
+
+        # 验证 token：优先使用活跃 token 列表，其次使用 API_TOKEN
+        user_info = decode_token(token)
+        if user_info:
+            g.current_user = user_info
+            return f(*args, **kwargs)
 
         if token != API_TOKEN:
             return jsonify({'error': '无效的认证令牌'}), 401
@@ -72,8 +82,22 @@ def admin_required(f):
     """管理员权限验证装饰器"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # 检查是否为管理员
-        # 可以从 session、token 或其他方式获取
+        # 提取 Bearer token
+        auth_header = request.headers.get('Authorization', '')
+        if auth_header.startswith('Bearer '):
+            token = auth_header[7:]
+        else:
+            token = request.args.get('token') or request.headers.get('X-API-Token')
+
+        # 验证 token 并获取用户信息
+        user_info = decode_token(token) if token else None
+
+        if user_info and user_info.get('user_id') == 1:
+            # 用户 ID 1 是管理员
+            g.current_user = user_info
+            return f(*args, **kwargs)
+
+        # 检查是否有管理员标识
         is_admin = request.args.get('admin') == 'true' or request.headers.get('X-Admin') == 'true'
 
         if not is_admin:
@@ -81,6 +105,8 @@ def admin_required(f):
             # 实际项目中应该检查用户角色
             pass
 
+        # 设置当前用户
+        g.current_user = user_info or {'token': token}
         return f(*args, **kwargs)
 
     return decorated_function
