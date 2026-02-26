@@ -71,7 +71,7 @@ let users = [];
 // 加载用户列表
 async function loadUsers() {
     try {
-        const data = await apiRequest('/api/users');
+        const data = await BSHTApp.get('/api/users');
         users = data.items || [];
         renderUsers();
     } catch (e) {
@@ -141,7 +141,7 @@ function editUser(id) {
     document.getElementById('username').value = u.username;
     document.getElementById('password').value = '';
     document.getElementById('password').required = false;
-    document.getElementById('passwordHint').textContent = '(留空则不修改)');
+    document.getElementById('passwordHint').textContent = '(留空则不修改)';
     document.getElementById('userRole').value = u.role || 'observer';
     document.getElementById('canListen').checked = u.can_listen_recordings;
     document.getElementById('canTransmit').checked = u.can_transmit;
@@ -179,7 +179,7 @@ async function saveUser() {
         const body = { username, role, can_listen_recordings, can_transmit };
         if (password) body.password = password;
 
-        await apiRequest(url, { method, body: JSON.stringify(body) });
+        await BSHTApp.post(url, body);
 
         closeUserModal();
         loadUsers();
@@ -193,7 +193,7 @@ async function deleteUser(id) {
     if (!await confirm('确定要删除这个用户吗？')) return;
 
     try {
-        await apiRequest(`/api/users/${id}`, { method: 'DELETE' });
+        await BSHTApp.del(`/api/users/${id}`);
         loadUsers();
     } catch (e) {
         alert('删除失败: ' + e.message);

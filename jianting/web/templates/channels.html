@@ -79,7 +79,7 @@ let channels = [];
 // 加载频道列表
 async function loadChannels() {
     try {
-        const data = await apiRequest('/api/channels');
+        const data = await BSHTApp.get('/api/channels');
         channels = data.items || [];
         renderChannels();
         loadBotStatus();
@@ -129,7 +129,7 @@ function renderChannels() {
 // 加载 Bot 状态
 async function loadBotStatus() {
     try {
-        const data = await apiRequest('/api/bot/status');
+        const data = await BSHTApp.get('/api/bot/status');
         document.getElementById('currentChannel').textContent = data.channel_name || data.channel_id || '-';
         document.getElementById('onlineCount').textContent = data.online_count || '-';
     } catch (e) {
@@ -181,14 +181,11 @@ async function saveChannel() {
         const url = id ? `/api/channels/${id}` : '/api/channels';
         const method = id ? 'PUT' : 'POST';
 
-        await apiRequest(url, {
-            method,
-            body: JSON.stringify({
-                channel_id: parseInt(channel_id),
-                name,
-                passcode: parseInt(passcode) || 0,
-                auto_join
-            })
+        await BSHTApp.post(url, {
+            channel_id: parseInt(channel_id),
+            name,
+            passcode: parseInt(passcode) || 0,
+            auto_join
         });
 
         closeChannelModal();
@@ -203,7 +200,7 @@ async function deleteChannel(id) {
     if (!await confirm('确定要删除这个频道吗？')) return;
 
     try {
-        await apiRequest(`/api/channels/${id}`, { method: 'DELETE' });
+        await BSHTApp.del(`/api/channels/${id}`);
         loadChannels();
     } catch (e) {
         alert('删除失败: ' + e.message);

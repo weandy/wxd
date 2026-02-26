@@ -92,7 +92,7 @@
 
 {% block scripts %}
 <script>
-    const API = window.BSHTApp;
+    const BSHTApp = window.BSHTApp;
 
     // ========== Bot Socket.IO 连接 (自动选择最佳传输方式) ==========
     let botSocket = null;
@@ -109,7 +109,7 @@
         botSocket.on('connect', () => {
             console.log('Bot Socket.IO 已连接');
             // 连接成功后立即获取 Bot 状态
-            API.get('/api/bot/status').then(data => {
+            BSHTApp.get('/api/bot/status').then(data => {
                 handleBotStatus(data);
             }).catch(err => console.error('获取状态失败:', err));
         });
@@ -189,7 +189,7 @@
     async function loadDashboard() {
         // Bot 状态
         try {
-            const bot = await API.get('/api/bot/status');
+            const bot = await BSHTApp.get('/api/bot/status');
             document.getElementById('botStatusDot').classList.add(bot.running ? 'online' : 'offline');
             document.getElementById('botStatusText').textContent = bot.running ? '运行中' : '已停止';
             document.getElementById('channelInfo').textContent = bot.channel_id ? `频道 ${bot.channel_id}` : '未加入';
@@ -215,13 +215,13 @@
 
         // 今日统计
         try {
-            const summary = await API.get('/api/system/summary');
+            const summary = await BSHTApp.get('/api/system/stats');
             document.getElementById('todayRecordings').textContent = summary.today.total_recordings;
         } catch (e) { }
 
         // 最近录音
         try {
-            const data = await API.get('/api/recordings?per_page=5');
+            const data = await BSHTApp.get('/api/recordings?per_page=5');
             const container = document.getElementById('recentRecordings');
             if (data.items && data.items.length > 0) {
                 container.innerHTML = data.items.map(r => `
@@ -243,7 +243,7 @@
 
         // 系统资源
         try {
-            const stats = await API.get('/api/system/stats');
+            const stats = await BSHTApp.get('/api/system/stats');
             updateProgress('cpu', stats.cpu_percent);
             updateProgress('mem', stats.memory_percent);
             updateProgress('disk', stats.disk_percent);
