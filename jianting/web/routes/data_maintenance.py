@@ -14,8 +14,7 @@ data_maintenance_bp = Blueprint('data_maintenance', __name__, url_prefix='/api/d
 @admin_required
 def get_stats():
     """获取数据统计"""
-    db_path = get_db()
-    conn = get_db(db_path)
+    conn = get_db()
     cursor = conn.cursor()
 
     stats = {}
