@@ -206,7 +206,19 @@ class Database:
             cursor.execute("ALTER TABLE recordings ADD COLUMN invalid_reason TEXT DEFAULT ''")
         except sqlite3.OperationalError:
             pass  # 字段可能已存在
-        
+
+        # 数据库迁移：添加recorder_type字段（如果不存在）
+        try:
+            cursor.execute("ALTER TABLE recordings ADD COLUMN recorder_type TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass  # 字段可能已存在
+
+        # 数据库迁移：添加user_name字段（如果不存在）
+        try:
+            cursor.execute("ALTER TABLE recordings ADD COLUMN user_name TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass  # 字段可能已存在
+
         conn.commit()
         conn.close()
     

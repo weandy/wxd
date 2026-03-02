@@ -49,7 +49,7 @@ class Runner:
 
         # 在独立线程中运行 SocketIO
         def run_socketio():
-            socketio.run(app, host='0.0.0.0', port=port, debug=False, allow_unsafe_werkzeug=True)
+            socketio.run(app, host='0.0.0.0', port=port, debug=False)
 
         thread = threading.Thread(target=run_socketio, daemon=True)
         thread.start()
@@ -71,7 +71,7 @@ class Runner:
         # 初始化 Bot WebSocket 客户端
         from bot_ws_client import init_bot_ws_client, get_bot_ws_client
 
-        ws_url = os.getenv('BOT_WS_URL', 'ws://localhost:8080/bot')
+        ws_url = os.getenv('BOT_WS_URL', 'http://localhost:8080')
         self.bot_client = init_bot_ws_client(ws_url)
 
         # 启动 Bot

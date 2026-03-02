@@ -1,7 +1,6 @@
 """
-Bot WebSocket 客户端 - 连接到 Web 服务，推送实时状态
+Bot WebSocket 客户端 - 使用 Socket.IO 协议连接到 Web 服务
 """
-import asyncio
 import json
 import threading
 import time
@@ -17,11 +16,13 @@ _bot_ws_client_lock = threading.Lock()
 
 
 class BotWSClient:
-    """Bot WebSocket 客户端"""
+    """Bot Socket.IO 客户端"""
 
-    def __init__(self, ws_url: str = "ws://localhost:8080/bot"):
+    def __init__(self, ws_url: str = "http://localhost:8080"):
+        # 转换为 Socket.IO URL
         self.ws_url = ws_url
-        self.ws = None
+        self.socket_url = ws_url.replace('ws://', 'http://').replace('wss://', 'https://')
+        self.io = None
         self.running = False
         self.connected = False
         self.reconnect_delay = 5  # 重连延迟(秒)
@@ -32,96 +33,86 @@ class BotWSClient:
         self._callbacks['on_command'] = []
 
     def connect(self) -> bool:
-        """连接到 WebSocket 服务器"""
+        """连接到 Socket.IO 服务器"""
         try:
-            import websocket
-            logger.info(f"[WS] 连接到 {self.ws_url}...")
+            import socketio
+            logger.info(f"[WS] 连接到 {self.socket_url}...")
 
-            self.ws = websocket.WebSocketApp(
-                self.ws_url,
-                on_open=self._on_open,
-                on_message=self._on_message,
-                on_error=self._on_error,
-                on_close=self._on_close,
-                on_pong=self._on_pong
-            )
+            # 创建 Socket.IO 客户端
+            self.io = socketio.Client(reconnection=True, reconnection_attempts=0)
 
-            # 运行在独立线程
+            # 注册事件处理 - 使用默认 namespace
+            self.io.on('connect', self._on_connect)
+            self.io.on('disconnect', self._on_disconnect)
+            self.io.on('bot_connected', self._on_bot_connected)
+            self.io.on('bot_auth_ok', self._on_auth_ok)
+            self.io.on('bot_command', self._on_command)
+
+            # 连接 - 尝试 websocket，如果失败则降级到 polling
+            try:
+                self.io.connect(
+                    self.socket_url,
+                    transports=['websocket', 'polling']
+                )
+            except:
+                # 如果 websocket 失败，使用 polling
+                self.io.connect(
+                    self.socket_url,
+                    transports=['polling']
+                )
+
             self.running = True
-            self._thread = threading.Thread(target=self._run, daemon=True)
-            self._thread.start()
-
             logger.info("[WS] 连接线程已启动")
             return True
 
         except ImportError:
-            logger.warning("[WS] websocket-client 未安装，跳过连接")
+            logger.warning("[WS] python-socketio 未安装，跳过连接")
             return False
         except Exception as e:
             logger.error(f"[WS] 连接失败: {e}")
             return False
 
-    def _run(self):
-        """WebSocket 运行循环"""
-        while self.running:
-            try:
-                self.ws.run_forever(ping_interval=30, ping_timeout=10)
-            except Exception as e:
-                logger.error(f"[WS] 运行异常: {e}")
-
-            if self.running:
-                logger.info(f"[WS] 断开连接，{self.reconnect_delay}秒后重连...")
-                time.sleep(self.reconnect_delay)
-
-    def _on_open(self, ws):
-        """连接打开"""
+    def _on_connect(self):
+        """连接成功"""
         logger.info("[WS] ✅ 已连接到 Web 服务")
         self.connected = True
 
-        # 发送认证消息
-        ws.send(json.dumps({
-            'type': 'bot:auth',
-            'data': {
-                'bot_name': 'BSHT Bot',
-                'version': '1.0'
-            }
-        }))
-
-    def _on_message(self, ws, message):
-        """收到消息"""
-        try:
-            data = json.loads(message)
-            msg_type = data.get('type', '')
-
-            logger.debug(f"[WS] 收到消息: {msg_type}")
-
-            if msg_type == 'bot:command':
-                # 处理控制指令
-                for callback in self._callbacks['on_command']:
-                    callback(data.get('data', {}))
-
-        except json.JSONDecodeError:
-            logger.warning(f"[WS] 收到无效 JSON: {message[:100]}")
-
-    def _on_error(self, ws, error):
-        """连接错误"""
-        logger.error(f"[WS] 错误: {error}")
-
-    def _on_close(self, ws, close_status_code, close_msg):
-        """连接关闭"""
-        logger.warning(f"[WS] 连接关闭: {close_status_code} - {close_msg}")
+    def _on_disconnect(self):
+        """断开连接"""
+        logger.warning("[WS] 连接断开")
         self.connected = False
 
-    def _on_pong(self, ws, data):
-        """收到 Pong"""
-        logger.debug("[WS] 收到 Pong")
+    def _on_bot_connected(self, data):
+        """Bot 连接确认"""
+        logger.info(f"[WS] Bot 已连接: {data}")
+        self.connected = True
+
+        # 发送认证 - 使用默认 namespace
+        self.io.emit('bot_auth', {
+            'bot_name': 'BSHT Bot',
+            'version': '1.0'
+        })
+
+    def _on_auth_ok(self, data):
+        """认证成功"""
+        logger.info("[WS] ✅ Bot 认证成功")
+        self.connected = True
+
+    def _on_command(self, data):
+        """收到命令"""
+        logger.info(f"[WS] 收到命令: {data}")
+        for callback in self._callbacks['on_command']:
+            callback(data)
 
     def disconnect(self):
         """断开连接"""
         logger.info("[WS] 断开连接...")
         self.running = False
-        if self.ws:
-            self.ws.close()
+        if self.io:
+            try:
+                self.io.disconnect()
+            except:
+                pass
         self.connected = False
 
     def register_command_callback(self, callback: Callable):
@@ -135,10 +126,7 @@ class BotWSClient:
         if not self.connected:
             return
         try:
-            self.ws.send(json.dumps({
-                'type': 'bot:status',
-                'data': status
-            }))
+            self.io.emit('bot_status', status)
             logger.debug(f"[WS] 推送状态: {status.get('running', False)}")
         except Exception as e:
             logger.warning(f"[WS] 推送状态失败: {e}")
@@ -148,14 +136,11 @@ class BotWSClient:
         if not self.connected:
             return
         try:
-            self.ws.send(json.dumps({
-                'type': 'bot:channel',
-                'data': {
-                    'channel_id': channel_id,
-                    'channel_name': channel_name,
-                    'online_count': online_count
-                }
-            }))
+            self.io.emit('bot_channel', {
+                'channel_id': channel_id,
+                'channel_name': channel_name,
+                'online_count': online_count
+            })
             logger.info(f"[WS] 推送频道: {channel_name} ({online_count}人在线)")
         except Exception as e:
             logger.warning(f"[WS] 推送频道失败: {e}")
@@ -165,10 +150,7 @@ class BotWSClient:
         if not self.connected:
             return
         try:
-            self.ws.send(json.dumps({
-                'type': 'bot:recording',
-                'data': recording
-            }))
+            self.io.emit('bot_recording', recording)
             logger.info(f"[WS] 推送录音: {recording.get('filename', 'unknown')}")
         except Exception as e:
             logger.warning(f"[WS] 推送录音失败: {e}")
@@ -178,14 +160,11 @@ class BotWSClient:
         if not self.connected:
             return
         try:
-            self.ws.send(json.dumps({
-                'type': 'bot:speaking',
-                'data': {
-                    'user_id': user_id,
-                    'user_name': user_name,
-                    'speaking': speaking
-                }
-            }))
+            self.io.emit('bot_speaking', {
+                'user_id': user_id,
+                'user_name': user_name,
+                'speaking': speaking
+            })
             status = "开始说话" if speaking else "停止说话"
             logger.debug(f"[WS] 推送说话状态: {user_name} {status}")
         except Exception as e:
@@ -198,7 +177,7 @@ def get_bot_ws_client() -> Optional[BotWSClient]:
     return _bot_ws_client
 
 
-def init_bot_ws_client(ws_url: str = "ws://localhost:8080/bot") -> BotWSClient:
+def init_bot_ws_client(ws_url: str = "http://localhost:8080") -> BotWSClient:
     """初始化 Bot WebSocket 客户端"""
     global _bot_ws_client
 

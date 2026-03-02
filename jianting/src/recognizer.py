@@ -231,28 +231,38 @@ class RecordingRecognizer:
                     signal_type: str = "UNKNOWN"
                     confidence: float = 0.5
                     user_id: str = ""
-                    sensevoice_content: str = ""  # 添加缺失的属性
-                    success: bool = True  # 添加 success 属性
-                    error: str = ""  # 添加 error 属性
+                    sensevoice_content: str = ""
+                    success: bool = True
+                    error: str = ""
                 
-                @dataclass  
+                @dataclass
                 class AudioQuality:
                     rms_db: float = 0.0
                     snr_db: float = 0.0
-                
+
+                @dataclass
+                class DSPSuggestion:
+                    needed: bool = False
+                    level: str = "N/A"
+
                 ai_result = AIResult(
                     content=existing.asr_text or "",
                     content_normalized=existing.content_normalized or "",
                     signal_type=existing.signal_type or "UNKNOWN",
-                    confidence=existing.confidence or 0.5
+                    confidence=existing.confidence or 0.5,
+                    user_id=existing.user_id or "",
+                    sensevoice_content=existing.asr_text or "",
+                    success=True
                 )
                 quality = AudioQuality(
                     rms_db=existing.rms_db or 0.0,
                     snr_db=existing.snr_db or 0.0
                 )
-                self._print_result(ai_result, quality, user_name, recorder_type,
+                suggestion = DSPSuggestion(needed=False, level="N/A")
+
+                self._print_result(ai_result, quality, suggestion, user_name, recorder_type,
                                   existing.asr_text or "", existing.recognize_duration or 0,
-                                  start_time,
+                                  start_time, self.dsp_config.get("expert_model", "N/A"),
                                   duration=duration, lost_frames=lost_frames, loss_rate=loss_rate)
                 logger.info(f"[缓存] 识别完成: {os.path.basename(filepath)} (from cache)")
                 return

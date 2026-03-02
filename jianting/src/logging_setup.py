@@ -121,11 +121,22 @@ def setup_logger(name: str = "BSHTBox",
         )
 
         # 处理 Windows 文件锁定错误
-        def safe_rotator(stream):
-            """安全的轮转处理，捕获 Windows 文件锁定错误"""
+        def safe_rotator(*args):
+            """安全的轮转处理，捕获 Windows 文件锁定错误
+            兼容 Python 3.12+ (传递 source, dest 两个参数) 和旧版本 (传递 stream 一个参数)
+            """
+            # Python 3.12+ 传递两个参数: source, dest
+            # 旧版本传递一个参数: stream
+            if len(args) == 2:
+                source, dest = args
+                stream = None  # 新版本不需要手动关闭 stream
+            else:
+                stream = args[0] if args else None
+
             try:
                 # 先关闭流
-                stream.close()
+                if stream:
+                    stream.close()
                 # 尝试重命名
                 from datetime import datetime
                 date_str = datetime.now().strftime("%Y-%m-%d")

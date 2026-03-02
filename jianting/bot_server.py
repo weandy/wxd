@@ -581,8 +581,9 @@ class BotServer:
 
     @timed_sync("bot_server.keep_alive_loop")
     def _keep_alive_loop(self):
-        """频道内保活循环 (包含 PTT Release 检测)"""
+        """频道内保活循环 (包含 PTT Release 检测 + 命令轮询)"""
         last_heartbeat_time = time.time()
+        last_cmd_poll_time = 0  # 命令轮询计时器
         
         # 启动键盘 PTT 监听 (仅 enable_console_ptt=True 时启用)
         if self.enable_console_ptt and not getattr(self, '_ptt_thread_started', False):
@@ -677,6 +678,11 @@ class BotServer:
                         except Exception as e:
                             logger.error(f"重新设置录制器失败: {e}")
 
+                # --- 4. 命令轮询 (每秒一次) ---
+                if current_time - last_cmd_poll_time >= 1.0:
+                    last_cmd_poll_time = current_time
+                    self._process_pending_commands()
+
                 time.sleep(0.1) # Short sleep for responsiveness
                 
             except KeyboardInterrupt:
@@ -691,6 +697,132 @@ class BotServer:
                 logger.error(traceback.format_exc())
                 time.sleep(1)
                 # 继续循环而不是 return，避免心跳中断导致断连
+
+    def _process_pending_commands(self):
+        """轮询并执行待处理的 Web 端指令"""
+        try:
+            # 使用 Web 端数据库路径
+            db_path = os.path.join('data', 'records.db')
+            if not os.path.exists(db_path):
+                return
+
+            from web.models.database import poll_pending_commands, update_command_status
+            commands = poll_pending_commands(db_path)
+
+            for cmd in commands:
+                cmd_id = cmd['id']
+                command = cmd['command']
+                params = cmd.get('params')
+                try:
+                    result = self._execute_command(command, params)
+                    update_command_status(cmd_id, 'done', result, db_path)
+                except Exception as e:
+                    logger.error(f"执行命令 {command} (id={cmd_id}) 失败: {e}")
+                    update_command_status(cmd_id, 'error', str(e), db_path)
+
+        except Exception as e:
+            # 静默处理数据库不存在等情况
+            if 'no such table' not in str(e):
+                logger.error(f"命令轮询异常: {e}")
+
+    def _execute_command(self, command: str, params: str = None) -> str:
+        """执行单条命令，返回结果描述"""
+        import json as _json
+
+        if command == 'restart':
+            logger.info("[CMD] 收到重启指令")
+            # 在新线程中重启，避免阻塞轮询
+            def do_restart():
+                self.stop()
+                time.sleep(2)
+                self.start()
+            threading.Thread(target=do_restart, daemon=True).start()
+            return '重启已触发'
+
+        elif command == 'ptt_start':
+            logger.info("[CMD] 收到 Web PTT 开始指令")
+            if hasattr(self, 'listener') and self.listener:
+                self.listener.start_transmit()
+                return 'PTT 已开始'
+            return 'listener 未就绪'
+
+        elif command == 'ptt_stop':
+            logger.info("[CMD] 收到 Web PTT 停止指令")
+            if hasattr(self, 'listener') and self.listener:
+                self.listener.stop_transmit()
+                return 'PTT 已停止'
+            return 'listener 未就绪'
+
+        elif command == 'ptt_audio':
+            # PCM 帧通过共享目录传递，由单独方法处理
+            self._handle_ptt_audio_files()
+            return 'ok'
+
+        elif command == 'play_audio':
+            if not params:
+                return '缺少参数'
+            p = _json.loads(params)
+            audio_id = p.get('audio_id')
+            logger.info(f"[CMD] 收到播放音频指令: audio_id={audio_id}")
+            # 从音频库查找文件并发射
+            if hasattr(self, 'listener') and self.listener:
+                from web.models.database import get_db
+                db_path = os.path.join('data', 'records.db')
+                conn = get_db(db_path)
+                row = conn.execute('SELECT filepath FROM audio_library WHERE id = ?', (audio_id,)).fetchone()
+                conn.close()
+                if row and os.path.exists(row['filepath']):
+                    self._play_audio_file(row['filepath'])
+                    return f'播放完成: {row["filepath"]}'
+                return f'音频文件未找到: audio_id={audio_id}'
+            return 'listener 未就绪'
+
+        else:
+            logger.warning(f"[CMD] 未知命令: {command}")
+            return f'未知命令: {command}'
+
+    def _handle_ptt_audio_files(self):
+        """从共享缓冲目录读取 PCM 帧文件并发送"""
+        ptt_dir = os.path.join('data', 'ptt_buffer')
+        if not os.path.isdir(ptt_dir):
+            return
+
+        # 按文件名排序（文件名包含 seq 编号）
+        files = sorted(f for f in os.listdir(ptt_dir) if f.endswith('.pcm'))
+        for fname in files:
+            filepath = os.path.join(ptt_dir, fname)
+            try:
+                with open(filepath, 'rb') as f:
+                    pcm_data = f.read()
+                os.remove(filepath)
+                # 将 PCM 数据发送到 listener 的发射队列
+                if hasattr(self, 'listener') and self.listener and hasattr(self.listener, '_tx_queue'):
+                    self.listener._tx_queue.put(pcm_data)
+            except Exception as e:
+                logger.error(f"处理 PTT 音频文件失败 {fname}: {e}")
+
+    def _play_audio_file(self, filepath: str):
+        """读取音频文件并通过 listener 发射"""
+        import wave
+        try:
+            self.listener.start_transmit()
+            with wave.open(filepath, 'rb') as wf:
+                frame_size = 640  # 320 samples * 2 bytes (16-bit PCM)
+                while True:
+                    data = wf.readframes(320)
+                    if not data or len(data) < frame_size:
+                        break
+                    if hasattr(self.listener, '_tx_queue'):
+                        self.listener._tx_queue.put(data)
+                    time.sleep(0.020)  # 20ms per frame
+            # 等待最后的帧发送完毕
+            time.sleep(0.1)
+            self.listener.stop_transmit()
+            logger.info(f"[CMD] 音频播放完成: {filepath}")
+        except Exception as e:
+            logger.error(f"播放音频失败: {e}")
+            if hasattr(self, 'listener') and self.listener:
+                self.listener.stop_transmit()
 
     def _start_ptt_keyboard(self):
         """启动键盘 PTT 监听线程 (使用 GetAsyncKeyState 直接检测物理按键状态)"""

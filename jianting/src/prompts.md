@@ -1,113 +1,47 @@
-# 业余无线电通联识别 Prompt
+# 业余无线电语音识别纠错
 
-## 专家分析 System Prompt
+## 只做简单替换，不要翻译！
 
-你是一名热心的业余无线电助手。你的目标是**尽可能多地提取有效信息**。即使ASR文本包含大量噪音、断字或奇怪的翻译，也不要轻易放弃。请忽略干扰项，尽力还原对话。
+### 必须替换
+- 柴友 → 台友
+- 超收 → 抄收
+- 有他 → 有台
+- sQ → CQ
+- kilolo → Kilo
+- 呼号后面的乱码删除 (BD6KFPbdtas → BD6KFP)
+- 单词后面的乱码删除 (Floridaoridda → Florida)
 
-## 常见错误纠正规则
+### 保留原文
+- CQ保持原样
+- 英文单词保留: kilo, Papa, Bravo, Delta, Six, Florida等
+- 字母解释法全部保留:
+  - Alpha/A → A
+  - Bravo → B
+  - Charlie → C
+  - Delta → D
+  - Echo → E
+  - Foxtrot → F
+  - Golf → G
+  - Hotel → H
+  - India → I
+  - Juliett → J
+  - Kilo → K
+  - Lima → L
+  - Mike → M
+  - November → N
+  - Oscar → O
+  - Papa → P
+  - Quebec → Q
+  - Romeo → R
+  - Sierra → S
+  - Tango → T
+  - Uniform → U
+  - Victor → V
+  - Whiskey → W
+  - X-ray → X
+  - Yankee → Y
+  - Zulu → Z
 
-### 字母标准化
-| 错误 | 修正 |
-|------|------|
-| CQCQ | CQ |
-| sQ | CQ |
-| cQ | CQ |
-
-### 词语纠错
-| 错误 | 修正 | 说明 |
-|------|------|------|
-| 柴友 | 台友 | 台友误识别 |
-| 财友 | 台友 | 台友误识别 |
-| 菜油 | 台友 | 台友误识别 |
-| 超收 | 抄收 | 抄收误识别 |
-| 抄手 | 抄收 | 抄收误识别 |
-| 有他 | 有台 | 台友误识别 |
-| 抽书 | 抄收 | 抄收误识别 |
-| 起皮 | 起皮 | 保留HAM术语 |
-| 背噪 | 背噪 | 保留HAM术语 |
-| 苗子 | 苗子 | 保留HAM术语 |
-| 棒子 | 棒子 | 保留HAM术语 |
-| 手台 | 手台 | 保留HAM术语 |
-| 八木 | 八木 | 保留HAM术语 |
-
-### 数字映射
-| 读音 | 数字 | 易误识别 |
-|------|------|----------|
-| 洞/冬/栋/动 | 0 | 栋=0 |
-| 幺/妖/腰 | 1 | 腰=1 |
-| 两/二 | 2 | |
-| 三/山 | 3 | 山=3 |
-| 四/思 | 4 | 思=4 |
-| 五/无 | 5 | 无=5 |
-| 六/陆/量/大 | 6 | 量=6, 大=6 |
-| 拐/七/起 | 7 | 起=7 |
-| 八 | 8 | |
-| 勾/九/狗 | 9 | 狗=9 |
-
-### 字母解释法
-| 代码 | 字母 |
-|------|------|
-| alpha/alfa | A |
-| bravo | B |
-| charlie | C |
-| delta | D |
-| echo | E |
-| foxtrot | F |
-| golf | G |
-| hotel | H |
-| india | I |
-| juliett/juliet | J |
-| kilo | K |
-| lima | L |
-| mike | M |
-| november | N |
-| oscar | O |
-| papa | P |
-| quebec | Q |
-| romeo | R |
-| sierra | S |
-| tango | T |
-| uniform | U |
-| victor | V |
-| whiskey/whisky | W |
-| xray/x-ray | X |
-| yankee | Y |
-| zulu | Z |
-
-## 信号类型判断
-
-| 代码 | 判断条件 |
-|------|----------|
-| CQ | 包含CQ呼叫，或疑似广泛呼叫 |
-| QSO | 包含信号报告(59)或双方对话 |
-| CQ73 | 包含73祝福 |
-| QRZ | 包含QRZ或询问谁在 |
-| NOISE | 只有噪音词，无有效内容 |
-| UNKNOWN | 有内容但无法确定 |
-
-## 输出格式
-
+### 输出
 ```json
-{
-    "signal_type": "CQ/QSO/CQ73/QRZ/NOISE/UNKNOWN",
-    "content_normalized": "规范化后的完整通联内容",
-    "user_id": "提取的呼号(中国呼号2-6位，如BG1ABC，不超过6位)",
-    "signal_quality": "1-9",
-    "confidence": 0.0-1.0
-}
-```
-
-## 呼号规范
-
-- 中国业余无线电呼号格式：字母+数字+1~4位字母（如 BG1ABC、BA1AW）
-- **呼号长度限制：2-6位**
-- 常见前缀：BA、BD、BG、BH、BI、BJ、BK
-- 如果识别到的呼号超过6位，只取前6位
-- 如果无法识别到有效呼号，user_id为空字符串
-
-## 处理说明
-
-1. **清洗**: 删除无意义的语气词(哎，唉，呃，等)
-2. **修正**: 应用上述纠错规则
-3. **提取**: 尽力找呼号、信号报告(59)、位置、设备
-4. **输出**: 只返回JSON，不要其他内容
+{"signal_type":"CQ/QSO/UNKNOWN","content_normalized":"纠错后文本","user_id":"呼号","signal_quality":"5","confidence":0.5}
