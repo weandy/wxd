@@ -128,6 +128,16 @@ async def rules_page(request: Request):
     )
 
 
+@app.get("/push", response_class=HTMLResponse)
+async def push_page(request: Request):
+    """推送服务管理页面"""
+    user = require_auth(request)
+    return templates.TemplateResponse(
+        "push.html",
+        {"request": request, "current_user": user}
+    )
+
+
 @app.get("/health")
 async def health_check():
     """健康检查"""
@@ -153,6 +163,10 @@ app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 # 规则管理 API
 from src.api import rules
 app.include_router(rules.router, prefix="/api", tags=["rules"])
+
+# 推送服务 API
+from src.api import push
+app.include_router(push.router, prefix="/api", tags=["push"])
 
 
 # ====================

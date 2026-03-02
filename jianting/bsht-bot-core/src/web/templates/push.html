@@ -1,0 +1,966 @@
+{% extends "base.html" %}
+
+{% block title %}推送服务管理 - BSHT Bot 管理平台{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-3xl font-bold text-gray-800">推送服务管理</h1>
+    <p class="text-gray-600 mt-1">管理微信推送服务和用户</p>
+</div>
+
+<!-- 统计卡片 -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-medium text-gray-500">推送服务</p>
+                <p id="totalServices" class="text-2xl font-bold text-gray-800 mt-1">-</p>
+                <p id="enabledServices" class="text-sm text-green-600 mt-1">已启用: -</p>
+            </div>
+            <div class="text-3xl">🔔</div>
+        </div>
+    </div>
+
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-medium text-gray-500">推送用户</p>
+                <p id="totalUsers" class="text-2xl font-bold text-gray-800 mt-1">-</p>
+                <p id="enabledUsers" class="text-sm text-green-600 mt-1">已启用: -</p>
+            </div>
+            <div class="text-3xl">👥</div>
+        </div>
+    </div>
+
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-medium text-gray-500">服务类型</p>
+                <p id="serviceTypes" class="text-2xl font-bold text-blue-600 mt-1">-</p>
+            </div>
+            <div class="text-3xl">🏷️</div>
+        </div>
+    </div>
+
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-medium text-gray-500">测试推送</p>
+                <button onclick="showTestModal()" class="mt-1 px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700">
+                    立即测试
+                </button>
+            </div>
+            <div class="text-3xl">🧪</div>
+        </div>
+    </div>
+</div>
+
+<!-- Tab 切换 -->
+<div class="bg-white rounded-lg shadow mb-6">
+    <div class="border-b">
+        <nav class="flex -mb-px">
+            <button onclick="switchTab('services')" id="tab-services" class="tab-button px-6 py-4 text-blue-600 border-b-2 border-blue-600 font-medium">
+                推送服务
+            </button>
+            <button onclick="switchTab('users')" id="tab-users" class="tab-button px-6 py-4 text-gray-500 hover:text-gray-700 font-medium">
+                推送用户
+            </button>
+        </nav>
+    </div>
+
+    <!-- 推送服务列表 -->
+    <div id="services-panel" class="p-4">
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center space-x-4">
+                <select id="serviceTypeFilter" onchange="loadServices(1)" class="px-4 py-2 border rounded-lg">
+                    <option value="">所有类型</option>
+                    <option value="wxpusher">WxPusher</option>
+                </select>
+                <select id="serviceEnabledFilter" onchange="loadServices(1)" class="px-4 py-2 border rounded-lg">
+                    <option value="">所有状态</option>
+                    <option value="true">已启用</option>
+                    <option value="false">已禁用</option>
+                </select>
+            </div>
+            <button onclick="showAddServiceModal()" class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                添加服务
+            </button>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">服务名称</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">类型</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">URL</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">用户数</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">状态</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="servicesTable" class="divide-y divide-gray-200">
+                    <tr>
+                        <td colspan="6" class="px-4 py-8 text-center text-gray-500">加载中...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div id="servicesPagination" class="p-4 border-t"></div>
+    </div>
+
+    <!-- 推送用户列表 -->
+    <div id="users-panel" class="p-4 hidden">
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center space-x-4">
+                <select id="userServiceFilter" onchange="loadUsers(1)" class="px-4 py-2 border rounded-lg">
+                    <option value="">所有服务</option>
+                </select>
+                <select id="userEnabledFilter" onchange="loadUsers(1)" class="px-4 py-2 border rounded-lg">
+                    <option value="">所有状态</option>
+                    <option value="true">已启用</option>
+                    <option value="false">已禁用</option>
+                </select>
+            </div>
+            <button onclick="showAddUserModal()" class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                添加用户
+            </button>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">用户名称</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">服务</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">用户标识</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">关键词</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">状态</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="usersTable" class="divide-y divide-gray-200">
+                    <tr>
+                        <td colspan="6" class="px-4 py-8 text-center text-gray-500">加载中...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div id="usersPagination" class="p-4 border-t"></div>
+    </div>
+</div>
+
+<!-- 添加/编辑服务模态框 -->
+<div id="serviceModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 id="serviceModalTitle" class="text-xl font-bold text-gray-800">添加推送服务</h2>
+                <button onclick="closeServiceModal()" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <form id="serviceForm" onsubmit="saveService(event)">
+                <input type="hidden" id="serviceId">
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">服务名称 *</label>
+                        <input type="text" id="serviceName" required
+                               class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">服务类型 *</label>
+                        <select id="serviceType" required
+                                class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="wxpusher">WxPusher</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">API URL *</label>
+                        <input type="url" id="serviceUrl" required
+                               class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               placeholder="https://example.com/api/push">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Token</label>
+                        <input type="text" id="serviceToken"
+                               class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               placeholder="服务令牌（可选）">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">配置 (JSON)</label>
+                        <textarea id="serviceConfig" rows="3"
+                                  class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  placeholder='{"key": "value"}'>{}</textarea>
+                    </div>
+
+                    <div>
+                        <label class="flex items-center">
+                            <input type="checkbox" id="serviceEnabled" checked
+                                   class="w-4 h-4 text-blue-600 rounded">
+                            <span class="ml-2 text-sm text-gray-700">启用此服务</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="flex justify-end space-x-3 mt-6">
+                    <button type="button" onclick="closeServiceModal()"
+                            class="px-6 py-2 border rounded-lg hover:bg-gray-50">
+                        取消
+                    </button>
+                    <button type="submit"
+                            class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                        保存
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 添加/编辑用户模态框 -->
+<div id="userModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4">
+        <div class="p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 id="userModalTitle" class="text-xl font-bold text-gray-800">添加推送用户</h2>
+                <button onclick="closeUserModal()" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <form id="userForm" onsubmit="saveUser(event)">
+                <input type="hidden" id="userId">
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">推送服务 *</label>
+                        <select id="userServiceId" required
+                                class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">用户名称 *</label>
+                        <input type="text" id="userName" required
+                               class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">用户标识 (UID) *</label>
+                        <input type="text" id="userIdentifier" required
+                               class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               placeholder="WxPusher UID">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">关键词</label>
+                        <input type="text" id="userKeywords"
+                               class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               placeholder="关键词，用逗号分隔（可选）">
+                        <p class="text-sm text-gray-500 mt-1">仅当消息包含这些关键词时才推送</p>
+                    </div>
+
+                    <div>
+                        <label class="flex items-center">
+                            <input type="checkbox" id="userEnabled" checked
+                                   class="w-4 h-4 text-blue-600 rounded">
+                            <span class="ml-2 text-sm text-gray-700">启用此用户</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="flex justify-end space-x-3 mt-6">
+                    <button type="button" onclick="closeUserModal()"
+                            class="px-6 py-2 border rounded-lg hover:bg-gray-50">
+                        取消
+                    </button>
+                    <button type="submit"
+                            class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                        保存
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 测试推送模态框 -->
+<div id="testModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4">
+        <div class="p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-bold text-gray-800">测试推送</h2>
+                <button onclick="closeTestModal()" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">推送服务 *</label>
+                    <select id="testServiceId" required onchange="loadServiceUsers()"
+                            class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">目标用户（可选）</label>
+                    <select id="testUserId"
+                            class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">所有启用用户</option>
+                    </select>
+                    <p class="text-sm text-gray-500 mt-1">不选择则发送给该服务的所有启用用户</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">测试消息 *</label>
+                    <textarea id="testMessage" rows="3"
+                              class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">这是一条测试消息</textarea>
+                </div>
+
+                <button onclick="testPush()" class="w-full px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+                    发送测试
+                </button>
+
+                <div id="testResult" class="hidden">
+                    <h3 class="text-lg font-medium text-gray-800 mb-2">推送结果</h3>
+                    <div id="testResultContent" class="space-y-2"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentTab = 'services';
+let currentPageServices = 1;
+let currentPageUsers = 1;
+const pageSize = 10;
+
+// 页面加载时初始化
+document.addEventListener('DOMContentLoaded', () => {
+    loadStats();
+    loadServices(1);
+    loadServicesForSelect();
+});
+
+// 切换Tab
+function switchTab(tab) {
+    currentTab = tab;
+
+    // 更新Tab按钮样式
+    document.querySelectorAll('.tab-button').forEach(btn => {
+        btn.classList.remove('text-blue-600', 'border-b-2', 'border-blue-600');
+        btn.classList.add('text-gray-500');
+    });
+    document.getElementById(`tab-${tab}`).classList.add('text-blue-600', 'border-b-2', 'border-blue-600');
+    document.getElementById(`tab-${tab}`).classList.remove('text-gray-500');
+
+    // 显示对应面板
+    document.getElementById('services-panel').classList.toggle('hidden', tab !== 'services');
+    document.getElementById('users-panel').classList.toggle('hidden', tab !== 'users');
+
+    // 加载数据
+    if (tab === 'services') {
+        loadServices(1);
+    } else {
+        loadUsers(1);
+    }
+}
+
+// 加载统计数据
+async function loadStats() {
+    try {
+        const response = await fetchAPI('/push/services/stats');
+        if (response.code === 0) {
+            const stats = response.data;
+            document.getElementById('totalServices').textContent = stats.total_services;
+            document.getElementById('enabledServices').textContent = `已启用: ${stats.enabled_services}`;
+            document.getElementById('totalUsers').textContent = stats.total_users;
+            document.getElementById('enabledUsers').textContent = `已启用: ${stats.enabled_users}`;
+            document.getElementById('serviceTypes').textContent = Object.keys(stats.by_type).length;
+        }
+    } catch (error) {
+        console.error('加载统计失败:', error);
+    }
+}
+
+// 加载推送服务列表
+async function loadServices(page) {
+    currentPageServices = page;
+
+    try {
+        const params = new URLSearchParams({
+            page: page,
+            page_size: pageSize
+        });
+
+        const typeFilter = document.getElementById('serviceTypeFilter').value;
+        const enabledFilter = document.getElementById('serviceEnabledFilter').value;
+
+        if (typeFilter) params.append('type', typeFilter);
+        if (enabledFilter !== '') params.append('enabled', enabledFilter === 'true');
+
+        const response = await fetchAPI(`/push/services?${params.toString()}`);
+
+        if (response.code === 0) {
+            const { services, total, total_pages } = response.data;
+            renderServices(services);
+            renderServicesPagination(page, total_pages, total);
+        }
+    } catch (error) {
+        console.error('加载服务失败:', error);
+        showMessage('加载失败', 'error');
+    }
+}
+
+// 渲染服务列表
+function renderServices(services) {
+    const table = document.getElementById('servicesTable');
+
+    if (!services || services.length === 0) {
+        table.innerHTML = `
+            <tr>
+                <td colspan="6" class="px-4 py-8 text-center text-gray-500">暂无数据</td>
+            </tr>
+        `;
+        return;
+    }
+
+    table.innerHTML = services.map(service => `
+        <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3">
+                <div class="font-medium text-gray-900">${service.name}</div>
+            </td>
+            <td class="px-4 py-3">
+                <span class="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
+                    ${service.type}
+                </span>
+            </td>
+            <td class="px-4 py-3 text-gray-600 text-sm">${escapeHtml(service.url)}</td>
+            <td class="px-4 py-3 text-gray-600">${service.user_count || 0}</td>
+            <td class="px-4 py-3">
+                <button onclick="toggleServiceStatus(${service.id})" class="px-3 py-1 text-xs rounded-full ${
+                    service.enabled ? 'bg-green-100 text-green-800 hover:bg-green-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }">
+                    ${service.enabled ? '已启用' : '已禁用'}
+                </button>
+            </td>
+            <td class="px-4 py-3">
+                <div class="flex items-center space-x-2">
+                    <button onclick="editService(${service.id})" class="text-blue-600 hover:text-blue-800" title="编辑">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                        </svg>
+                    </button>
+                    <button onclick="deleteService(${service.id})" class="text-red-600 hover:text-red-800" title="删除">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// 渲染服务分页
+function renderServicesPagination(page, totalPages, total) {
+    const pagination = document.getElementById('servicesPagination');
+    pagination.innerHTML = renderPaginationHTML(page, totalPages, total, 'loadServices');
+}
+
+// 加载推送用户列表
+async function loadUsers(page) {
+    currentPageUsers = page;
+
+    try {
+        const params = new URLSearchParams({
+            page: page,
+            page_size: pageSize
+        });
+
+        const serviceFilter = document.getElementById('userServiceFilter').value;
+        const enabledFilter = document.getElementById('userEnabledFilter').value;
+
+        if (serviceFilter) params.append('service_id', serviceFilter);
+        if (enabledFilter !== '') params.append('enabled', enabledFilter === 'true');
+
+        const response = await fetchAPI(`/push/users?${params.toString()}`);
+
+        if (response.code === 0) {
+            const { users, total, total_pages } = response.data;
+            renderUsers(users);
+            renderUsersPagination(page, total_pages, total);
+        }
+    } catch (error) {
+        console.error('加载用户失败:', error);
+        showMessage('加载失败', 'error');
+    }
+}
+
+// 渲染用户列表
+function renderUsers(users) {
+    const table = document.getElementById('usersTable');
+
+    if (!users || users.length === 0) {
+        table.innerHTML = `
+            <tr>
+                <td colspan="6" class="px-4 py-8 text-center text-gray-500">暂无数据</td>
+            </tr>
+        `;
+        return;
+    }
+
+    table.innerHTML = users.map(user => `
+        <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3 font-medium text-gray-900">${user.name}</td>
+            <td class="px-4 py-3 text-gray-600">${user.service_name || '-'}</td>
+            <td class="px-4 py-3 text-gray-600 font-mono text-sm">${escapeHtml(user.user_identifier)}</td>
+            <td class="px-4 py-3 text-gray-600">${escapeHtml(user.keywords || '-')}</td>
+            <td class="px-4 py-3">
+                <button onclick="toggleUserStatus(${user.id})" class="px-3 py-1 text-xs rounded-full ${
+                    user.enabled ? 'bg-green-100 text-green-800 hover:bg-green-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }">
+                    ${user.enabled ? '已启用' : '已禁用'}
+                </button>
+            </td>
+            <td class="px-4 py-3">
+                <div class="flex items-center space-x-2">
+                    <button onclick="editUser(${user.id})" class="text-blue-600 hover:text-blue-800" title="编辑">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                        </svg>
+                    </button>
+                    <button onclick="deleteUser(${user.id})" class="text-red-600 hover:text-red-800" title="删除">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// 渲染用户分页
+function renderUsersPagination(page, totalPages, total) {
+    const pagination = document.getElementById('usersPagination');
+    pagination.innerHTML = renderPaginationHTML(page, totalPages, total, 'loadUsers');
+}
+
+// 通用分页HTML
+function renderPaginationHTML(page, totalPages, total, loadFunc) {
+    if (totalPages <= 1) {
+        return `<p class="text-center text-gray-500 text-sm">共 ${total} 条记录</p>`;
+    }
+
+    let html = '<div class="flex items-center justify-center space-x-2">';
+
+    html += `<button onclick="${loadFunc}(${page - 1})"
+            class="px-4 py-2 rounded border ${page === 1 ? 'text-gray-400 cursor-not-allowed' : 'hover:bg-gray-100'}"
+            ${page === 1 ? 'disabled' : ''}>上一页</button>`;
+
+    for (let i = 1; i <= totalPages; i++) {
+        if (i === 1 || i === totalPages || (i >= page - 2 && i <= page + 2)) {
+            html += `<button onclick="${loadFunc}(${i})"
+                    class="px-4 py-2 rounded border ${i === page ? 'bg-blue-600 text-white' : 'hover:bg-gray-100'}">${i}</button>`;
+        } else if (i === page - 3 || i === page + 3) {
+            html += '<span class="px-2">...</span>';
+        }
+    }
+
+    html += `<button onclick="${loadFunc}(${page + 1})"
+            class="px-4 py-2 rounded border ${page === totalPages ? 'text-gray-400 cursor-not-allowed' : 'hover:bg-gray-100'}"
+            ${page === totalPages ? 'disabled' : ''}>下一页</button>`;
+
+    html += '</div>';
+    html += `<p class="text-center text-gray-500 text-sm mt-2">共 ${total} 条记录，第 ${page}/${totalPages} 页</p>`;
+
+    return html;
+}
+
+// 加载服务列表（用于下拉框）
+async function loadServicesForSelect() {
+    try {
+        const response = await fetchAPI('/push/services?page=1&page_size=100');
+        if (response.code === 0) {
+            const services = response.data.services;
+
+            // 更新用户表单中的服务选择
+            const userServiceId = document.getElementById('userServiceId');
+            userServiceId.innerHTML = services.map(s =>
+                `<option value="${s.id}">${s.name}</option>`
+            ).join('');
+
+            // 更新测试模态框中的服务选择
+            const testServiceId = document.getElementById('testServiceId');
+            testServiceId.innerHTML = services.map(s =>
+                `<option value="${s.id}">${s.name}</option>`
+            ).join('');
+
+            // 更新用户筛选
+            const userServiceFilter = document.getElementById('userServiceFilter');
+            userServiceFilter.innerHTML = '<option value="">所有服务</option>' +
+                services.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+        }
+    } catch (error) {
+        console.error('加载服务列表失败:', error);
+    }
+}
+
+// 加载服务的用户列表（用于测试）
+async function loadServiceUsers() {
+    const serviceId = document.getElementById('testServiceId').value;
+    const testUserId = document.getElementById('testUserId');
+
+    if (!serviceId) {
+        testUserId.innerHTML = '<option value="">所有启用用户</option>';
+        return;
+    }
+
+    try {
+        const response = await fetchAPI(`/push/users?service_id=${serviceId}&enabled=true&page_size=100`);
+        if (response.code === 0) {
+            const users = response.data.users;
+            testUserId.innerHTML = '<option value="">所有启用用户</option>' +
+                users.map(u => `<option value="${u.id}">${u.name}</option>`).join('');
+        }
+    } catch (error) {
+        console.error('加载用户列表失败:', error);
+    }
+}
+
+// 显示添加服务模态框
+function showAddServiceModal() {
+    document.getElementById('serviceModalTitle').textContent = '添加推送服务';
+    document.getElementById('serviceForm').reset();
+    document.getElementById('serviceId').value = '';
+    document.getElementById('serviceConfig').value = '{}';
+    document.getElementById('serviceEnabled').checked = true;
+
+    const modal = document.getElementById('serviceModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+// 编辑服务
+async function editService(serviceId) {
+    try {
+        const response = await fetchAPI(`/push/services/${serviceId}`);
+        if (response.code === 0) {
+            const service = response.data;
+
+            document.getElementById('serviceModalTitle').textContent = '编辑推送服务';
+            document.getElementById('serviceId').value = service.id;
+            document.getElementById('serviceName').value = service.name;
+            document.getElementById('serviceType').value = service.type;
+            document.getElementById('serviceUrl').value = service.url;
+            document.getElementById('serviceToken').value = service.token || '';
+            document.getElementById('serviceConfig').value = service.config || '{}';
+            document.getElementById('serviceEnabled').checked = service.enabled;
+
+            const modal = document.getElementById('serviceModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+    } catch (error) {
+        console.error('加载服务详情失败:', error);
+        showMessage('加载失败', 'error');
+    }
+}
+
+// 保存服务
+async function saveService(event) {
+    event.preventDefault();
+
+    const serviceId = document.getElementById('serviceId').value;
+    const data = {
+        name: document.getElementById('serviceName').value,
+        type: document.getElementById('serviceType').value,
+        url: document.getElementById('serviceUrl').value,
+        token: document.getElementById('serviceToken').value || null,
+        config: document.getElementById('serviceConfig').value || '{}',
+        enabled: document.getElementById('serviceEnabled').checked
+    };
+
+    try {
+        if (serviceId) {
+            await fetchAPI(`/push/services/${serviceId}`, {
+                method: 'PUT',
+                body: JSON.stringify(data)
+            });
+            showMessage('更新成功', 'success');
+        } else {
+            await fetchAPI('/push/services', {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+            showMessage('创建成功', 'success');
+        }
+
+        closeServiceModal();
+        loadServices(currentPageServices);
+        loadStats();
+    } catch (error) {
+        console.error('保存失败:', error);
+        showMessage('保存失败', 'error');
+    }
+}
+
+// 删除服务
+async function deleteService(serviceId) {
+    if (!confirm('确定要删除这个推送服务吗？关联的推送用户也会被删除。')) {
+        return;
+    }
+
+    try {
+        await fetchAPI(`/push/services/${serviceId}`, {
+            method: 'DELETE'
+        });
+        showMessage('删除成功', 'success');
+        loadServices(currentPageServices);
+        loadStats();
+    } catch (error) {
+        console.error('删除失败:', error);
+        showMessage('删除失败', 'error');
+    }
+}
+
+// 切换服务状态
+async function toggleServiceStatus(serviceId) {
+    try {
+        await fetchAPI('/push/services/toggle', {
+            method: 'POST',
+            body: JSON.stringify(serviceId)
+        });
+        loadServices(currentPageServices);
+        loadStats();
+    } catch (error) {
+        console.error('切换状态失败:', error);
+        showMessage('切换失败', 'error');
+    }
+}
+
+// 显示添加用户模态框
+function showAddUserModal() {
+    document.getElementById('userModalTitle').textContent = '添加推送用户';
+    document.getElementById('userForm').reset();
+    document.getElementById('userId').value = '';
+    document.getElementById('userEnabled').checked = true;
+
+    const modal = document.getElementById('userModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+// 编辑用户
+async function editUser(userId) {
+    try {
+        const response = await fetchAPI(`/push/users/${userId}`);
+        if (response.code === 0) {
+            const user = response.data;
+
+            document.getElementById('userModalTitle').textContent = '编辑推送用户';
+            document.getElementById('userId').value = user.id;
+            document.getElementById('userServiceId').value = user.service_id;
+            document.getElementById('userName').value = user.name;
+            document.getElementById('userIdentifier').value = user.user_identifier;
+            document.getElementById('userKeywords').value = user.keywords || '';
+            document.getElementById('userEnabled').checked = user.enabled;
+
+            const modal = document.getElementById('userModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+    } catch (error) {
+        console.error('加载用户详情失败:', error);
+        showMessage('加载失败', 'error');
+    }
+}
+
+// 保存用户
+async function saveUser(event) {
+    event.preventDefault();
+
+    const userId = document.getElementById('userId').value;
+    const data = {
+        service_id: parseInt(document.getElementById('userServiceId').value),
+        name: document.getElementById('userName').value,
+        user_identifier: document.getElementById('userIdentifier').value,
+        keywords: document.getElementById('userKeywords').value,
+        enabled: document.getElementById('userEnabled').checked
+    };
+
+    try {
+        if (userId) {
+            await fetchAPI(`/push/users/${userId}`, {
+                method: 'PUT',
+                body: JSON.stringify(data)
+            });
+            showMessage('更新成功', 'success');
+        } else {
+            await fetchAPI('/push/users', {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+            showMessage('创建成功', 'success');
+        }
+
+        closeUserModal();
+        loadUsers(currentPageUsers);
+        loadStats();
+    } catch (error) {
+        console.error('保存失败:', error);
+        showMessage('保存失败', 'error');
+    }
+}
+
+// 删除用户
+async function deleteUser(userId) {
+    if (!confirm('确定要删除这个推送用户吗？')) {
+        return;
+    }
+
+    try {
+        await fetchAPI(`/push/users/${userId}`, {
+            method: 'DELETE'
+        });
+        showMessage('删除成功', 'success');
+        loadUsers(currentPageUsers);
+        loadStats();
+    } catch (error) {
+        console.error('删除失败:', error);
+        showMessage('删除失败', 'error');
+    }
+}
+
+// 切换用户状态
+async function toggleUserStatus(userId) {
+    try {
+        await fetchAPI('/push/users/toggle', {
+            method: 'POST',
+            body: JSON.stringify(userId)
+        });
+        loadUsers(currentPageUsers);
+        loadStats();
+    } catch (error) {
+        console.error('切换状态失败:', error);
+        showMessage('切换失败', 'error');
+    }
+}
+
+// 显示测试模态框
+function showTestModal() {
+    document.getElementById('testResult').classList.add('hidden');
+
+    const modal = document.getElementById('testModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+// 关闭测试模态框
+function closeTestModal() {
+    const modal = document.getElementById('testModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+// 测试推送
+async function testPush() {
+    const serviceId = document.getElementById('testServiceId').value;
+    const userId = document.getElementById('testUserId').value;
+    const message = document.getElementById('testMessage').value;
+
+    if (!serviceId) {
+        showMessage('请选择推送服务', 'error');
+        return;
+    }
+
+    if (!message.trim()) {
+        showMessage('请输入测试消息', 'error');
+        return;
+    }
+
+    try {
+        const data = {
+            service_id: parseInt(serviceId),
+            user_id: userId ? parseInt(userId) : null,
+            message: message
+        };
+
+        const response = await fetchAPI('/push/test', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+
+        if (response.code === 0) {
+            const result = response.data;
+
+            const resultDiv = document.getElementById('testResultContent');
+            resultDiv.innerHTML = `
+                <div class="p-3 bg-gray-50 rounded-lg">
+                    <p class="text-sm text-gray-600">服务: ${result.service}</p>
+                    <p class="text-sm text-gray-600">消息: ${escapeHtml(result.test_message)}</p>
+                    <p class="text-sm text-gray-600">发送: ${result.total_sent} 条</p>
+                    <p class="text-sm ${result.success_count === result.total_sent ? 'text-green-600' : 'text-orange-600'}">
+                        成功: ${result.success_count} 条
+                    </p>
+                </div>
+                <div class="space-y-2 mt-2">
+                    ${result.results.map(r => `
+                        <div class="p-3 ${r.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'} rounded-lg border">
+                            <p class="font-medium">${r.user}</p>
+                            <p class="text-sm">${r.success ? '✅ 推送成功' : '❌ 推送失败'}</p>
+                            ${r.error ? `<p class="text-sm text-red-600">${escapeHtml(r.error)}</p>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+
+            document.getElementById('testResult').classList.remove('hidden');
+        }
+    } catch (error) {
+        console.error('测试失败:', error);
+        showMessage('测试失败', 'error');
+    }
+}
+
+// 关闭模态框
+function closeServiceModal() {
+    const modal = document.getElementById('serviceModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+function closeUserModal() {
+    const modal = document.getElementById('userModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+// HTML 转义
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+{% endblock %}
