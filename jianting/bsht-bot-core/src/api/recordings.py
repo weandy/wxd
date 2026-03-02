@@ -113,8 +113,36 @@ async def get_recordings(
             "confidence": rec.confidence
         })
 
-    # 获取总数（简化处理，实际可能需要单独查询）
-    total = len(recording_list)
+    # 获取总数 - 需要单独查询以获取正确的总记录数
+    import sqlite3
+    conn = sqlite3.connect(db.db_path)
+    cursor = conn.cursor()
+
+    # 构建计数查询（与 get_recordings 相同的筛选条件）
+    count_query = "SELECT COUNT(*) FROM recordings WHERE 1=1"
+    count_params = []
+
+    if channel_id:
+        count_query += " AND channel_id = ?"
+        count_params.append(channel_id)
+
+    if user_id:
+        count_query += " AND user_id = ?"
+        count_params.append(user_id)
+
+    if date:
+        count_query += " AND DATE(timestamp) = ?"
+        count_params.append(date)
+
+    if search:
+        count_query += " AND (asr_text LIKE ? OR content_normalized LIKE ?)"
+        search_pattern = f"%{search}%"
+        count_params.append(search_pattern)
+        count_params.append(search_pattern)
+
+    cursor.execute(count_query, count_params)
+    total = cursor.fetchone()[0]
+    conn.close()
 
     return {
         "code": 0,
