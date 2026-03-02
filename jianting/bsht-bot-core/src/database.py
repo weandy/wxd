@@ -735,6 +735,7 @@ class Database:
                        recorder_type: Optional[str] = None,
                        recognized: Optional[bool] = None,
                        user_id: Optional[str] = None,
+                       date: Optional[str] = None,
                        search: Optional[str] = None,
                        limit: int = 100,
                        offset: int = 0) -> List[Recording]:
@@ -760,6 +761,11 @@ class Database:
         if user_id:
             query += " AND user_id = ?"
             params.append(user_id)
+
+        if date:
+            # 按日期筛选 - 使用 DATE 函数提取日期部分
+            query += " AND DATE(timestamp) = ?"
+            params.append(date)
 
         if search:
             # 搜索识别文本或归一化文本

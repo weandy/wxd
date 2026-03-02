@@ -72,6 +72,7 @@ async def get_recordings(
         channel_id=channel_id,
         recognized=recognized,
         user_id=user_id,
+        date=date,
         search=search,
         limit=page_size,
         offset=offset

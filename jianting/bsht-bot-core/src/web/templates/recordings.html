@@ -200,6 +200,18 @@ document.addEventListener('DOMContentLoaded', () => {
             loadRecordings(1);
         }
     });
+
+    // 日期筛选事件
+    document.getElementById('dateFilter').addEventListener('change', (e) => {
+        currentFilter.date = e.target.value;
+        loadRecordings(1);
+    });
+
+    // 用户筛选事件
+    document.getElementById('userFilter').addEventListener('change', (e) => {
+        currentFilter.user = e.target.value;
+        loadRecordings(1);
+    });
 });
 
 // 加载日期列表
@@ -519,17 +531,6 @@ document.getElementById('batchDeleteBtn')?.addEventListener('click', async () =>
         console.error('删除失败:', error);
         showMessage('删除失败', 'error');
     }
-});
-
-// 筛选事件监听
-document.getElementById('dateFilter').addEventListener('change', (e) => {
-    currentFilter.date = e.target.value;
-    loadRecordings(1);
-});
-
-document.getElementById('userFilter').addEventListener('change', (e) => {
-    currentFilter.user = e.target.value;
-    loadRecordings(1);
 });
 
 // 工具函数
