@@ -290,7 +290,7 @@ async function loadRecordings(page) {
 
         if (response.code === 0 && response.data) {
             renderRecordings(response.data.recordings || []);
-            renderPagination(page, Math.ceil((response.data.total || 0) / pageSize));
+            renderPagination(page, Math.ceil((response.data.total || 0) / pageSize), response.data.total || 0);
         } else {
             showEmpty(true);
         }
@@ -339,11 +339,12 @@ function renderRecordings(recordings) {
 }
 
 // 渲染分页
-function renderPagination(page, totalPages) {
+function renderPagination(page, totalPages, total) {
     const container = document.getElementById('paginationContainer');
 
     if (totalPages <= 1) {
-        container.innerHTML = '';
+        // 即使只有1页，也显示总记录数
+        container.innerHTML = `<p class="text-center text-gray-500 text-sm mt-4">共 ${total} 条记录，第 1/1 页</p>`;
         return;
     }
 
@@ -365,7 +366,7 @@ function renderPagination(page, totalPages) {
     html += `<button onclick="loadRecordings(${page + 1})" class="px-4 py-2 rounded border ${page === totalPages ? 'text-gray-400 cursor-not-allowed' : 'hover:bg-gray-100'}" ${page === totalPages ? 'disabled' : ''}>下一页</button>`;
 
     html += '</div>';
-    html += `<p class="text-center text-gray-500 text-sm mt-2">第 ${page}/${totalPages} 页</p>`;
+    html += `<p class="text-center text-gray-500 text-sm mt-2">共 ${total} 条记录，第 ${page}/${totalPages} 页</p>`;
 
     container.innerHTML = html;
 }
