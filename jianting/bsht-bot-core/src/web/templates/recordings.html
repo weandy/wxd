@@ -1,0 +1,544 @@
+{% extends "base.html" %}
+
+{% block title %}录音列表 - BSHT Bot 管理平台{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-3xl font-bold text-gray-800">🎙️ 录音列表</h1>
+    <p class="text-gray-600 mt-1">查看和播放录音文件</p>
+</div>
+
+<!-- 筛选栏 -->
+<div class="bg-white p-4 rounded-lg shadow mb-6">
+    <div class="flex flex-wrap gap-4 items-center">
+        <!-- 日期筛选 -->
+        <div class="flex-1 min-w-[200px]">
+            <label class="block text-sm font-medium text-gray-700 mb-1">日期</label>
+            <select id="dateFilter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <option value="">全部日期</option>
+            </select>
+        </div>
+
+        <!-- 用户筛选 -->
+        <div class="flex-1 min-w-[200px]">
+            <label class="block text-sm font-medium text-gray-700 mb-1">用户</label>
+            <select id="userFilter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <option value="">全部用户</option>
+            </select>
+        </div>
+
+        <!-- 搜索框 -->
+        <div class="flex-1 min-w-[300px]">
+            <label class="block text-sm font-medium text-gray-700 mb-1">搜索</label>
+            <div class="flex gap-2">
+                <input
+                    type="text"
+                    id="searchInput"
+                    placeholder="搜索识别文本..."
+                    class="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                >
+                <button id="searchBtn" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    🔍 搜索
+                </button>
+            </div>
+        </div>
+
+        <!-- 批量操作按钮 -->
+        <div class="self-end">
+            <button id="batchDeleteBtn" class="hidden px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 mr-2">
+                🗑️ 批量删除
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- 批量选择提示 -->
+<div id="batchBar" class="hidden bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4 flex items-center justify-between">
+    <span class="text-yellow-800">已选择 <strong id="selectedCount">0</strong> 条录音</span>
+    <div>
+        <button onclick="toggleSelectAll()" class="px-3 py-1 text-sm bg-yellow-200 text-yellow-800 rounded hover:bg-yellow-300 mr-2">
+            全选/取消
+        </button>
+        <button onclick="clearSelection()" class="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
+            取消选择
+        </button>
+    </div>
+</div>
+
+<!-- 录音列表 -->
+<div class="bg-white rounded-lg shadow overflow-hidden">
+    <!-- 批量操作列 -->
+    <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700 w-12">
+                        <input type="checkbox" id="selectAll" onchange="toggleSelectAll()">
+                    </th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">时间</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">用户</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">时长</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">识别文本</th>
+                    <th class="px-4 py-3 text-center text-sm font-medium text-gray-700 w-32">播放</th>
+                </tr>
+            </thead>
+            <tbody id="recordingsTable" class="divide-y divide-gray-200">
+                <!-- 动态加载 -->
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 加载中 -->
+    <div id="loadingIndicator" class="hidden p-8 text-center text-gray-500">
+        <div class="spinner inline-block mr-2"></div>
+        加载中...
+    </div>
+
+    <!-- 空状态 -->
+    <div id="emptyState" class="hidden p-8 text-center text-gray-500">
+        <p class="text-lg">暂无录音数据</p>
+    </div>
+</div>
+
+<!-- 分页 -->
+<div id="paginationContainer"></div>
+
+<!-- 播放弹窗 -->
+<div id="playerModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 overflow-hidden">
+        <!-- 弹窗头部 -->
+        <div class="bg-gradient-to-r from-blue-600 to-blue-800 text-white px-6 py-4 flex justify-between items-center">
+            <h3 class="text-xl font-bold">🎵 正在播放</h3>
+            <button onclick="closePlayerModal()" class="text-white hover:text-gray-200 text-2xl leading-none">&times;</button>
+        </div>
+
+        <!-- 弹窗内容 -->
+        <div class="p-6">
+            <!-- 音频信息 -->
+            <div class="mb-6">
+                <p id="playerUser" class="text-sm text-gray-500 mb-1">-</p>
+                <p id="playerTime" class="text-lg font-medium text-gray-800">-</p>
+            </div>
+
+            <!-- 进度条 -->
+            <div class="mb-6">
+                <div id="progressContainer" class="w-full h-3 bg-gray-200 rounded-full cursor-pointer relative group">
+                    <div id="progressBar" class="h-full bg-gradient-to-r from-blue-500 to-blue-700 rounded-full transition-all relative" style="width: 0%">
+                        <div class="absolute right-0 top-1/2 transform -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                    </div>
+                </div>
+                <div class="flex justify-between text-sm text-gray-500 mt-2">
+                    <span id="currentTime">00:00</span>
+                    <span id="duration">00:00</span>
+                </div>
+            </div>
+
+            <!-- 控制按钮 -->
+            <div class="flex justify-center items-center gap-4 mb-6">
+                <button onclick="seekBackward()" class="p-2 rounded-full hover:bg-gray-100 text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12.066 11.2a1 1 0 000 1.061l5.493 5.493a1 1 0 001.414-1.414l-5.493-5.493a1 1 0 00-1.414 0z"></path>
+                    </svg>
+                </button>
+                <button id="playPauseBtn" onclick="togglePlay()" class="p-4 rounded-full bg-blue-600 text-white hover:bg-blue-700">
+                    <svg id="playIcon" class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <svg id="pauseIcon" class="w-8 h-8 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                </button>
+                <button onclick="seekForward()" class="p-2 rounded-full hover:bg-gray-100 text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.933 12.8a1 1 0 000-1.061L6.44 6.246a1 1 0 00-1.414 1.415l5.493 5.493a1 1 0 001.414 0z"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- 识别文本 -->
+            <div class="bg-gray-50 rounded-lg p-4">
+                <h4 class="text-sm font-medium text-gray-700 mb-2">识别文本</h4>
+                <p id="playerText" class="text-gray-600">-</p>
+            </div>
+
+            <!-- 隐藏的音频元素 -->
+            <audio id="audioPlayer" preload="metadata"></audio>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+let pageSize = 20;
+let currentFilter = {
+    date: '',
+    user: '',
+    search: ''
+};
+let selectedRecordings = new Set();
+let currentAudio = null;
+
+// 页面加载时初始化
+document.addEventListener('DOMContentLoaded', () => {
+    loadDates();
+    loadUsers();
+    loadRecordings(1);
+
+    // 搜索按钮事件
+    document.getElementById('searchBtn').addEventListener('click', () => {
+        currentFilter.search = document.getElementById('searchInput').value;
+        loadRecordings(1);
+    });
+
+    // 回车搜索
+    document.getElementById('searchInput').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            currentFilter.search = e.target.value;
+            loadRecordings(1);
+        }
+    });
+});
+
+// 加载日期列表
+async function loadDates() {
+    try {
+        const response = await fetchAPI('/recordings/dates/list');
+        if (response.code === 0 && response.data.dates) {
+            const select = document.getElementById('dateFilter');
+            response.data.dates.forEach(date => {
+                const option = document.createElement('option');
+                option.value = date;
+                option.textContent = date;
+                select.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('加载日期失败:', error);
+    }
+}
+
+// 加载用户列表
+async function loadUsers() {
+    try {
+        const response = await fetchAPI('/recordings/users/list');
+        if (response.code === 0 && response.data.users) {
+            const select = document.getElementById('userFilter');
+            response.data.users.forEach(user => {
+                const option = document.createElement('option');
+                option.value = user.user_id;
+                option.textContent = user.user_name;
+                select.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('加载用户失败:', error);
+    }
+}
+
+// 加载录音列表
+async function loadRecordings(page) {
+    currentPage = page;
+    showLoading(true);
+
+    try {
+        const params = new URLSearchParams({
+            page: page,
+            page_size: pageSize
+        });
+
+        if (currentFilter.date) params.append('date', currentFilter.date);
+        if (currentFilter.user) params.append('user_id', currentFilter.user);
+        if (currentFilter.search) params.append('search', currentFilter.search);
+
+        const response = await fetchAPI(`/recordings?${params.toString()}`);
+
+        if (response.code === 0 && response.data) {
+            renderRecordings(response.data.recordings || []);
+            renderPagination(page, Math.ceil((response.data.total || 0) / pageSize));
+        } else {
+            showEmpty(true);
+        }
+    } catch (error) {
+        console.error('加载录音失败:', error);
+        showMessage('加载失败', 'error');
+        showEmpty(true);
+    } finally {
+        showLoading(false);
+    }
+}
+
+// 渲染录音列表
+function renderRecordings(recordings) {
+    const table = document.getElementById('recordingsTable');
+    const emptyState = document.getElementById('emptyState');
+
+    if (recordings.length === 0) {
+        table.innerHTML = '';
+        showEmpty(true);
+        return;
+    }
+
+    showEmpty(false);
+
+    table.innerHTML = recordings.map(rec => `
+        <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3">
+                <input type="checkbox" class="recording-checkbox" data-id="${rec.id}"
+                    ${selectedRecordings.has(rec.id) ? 'checked' : ''}
+                    onchange="toggleRecording(${rec.id})">
+            </td>
+            <td class="px-4 py-3 text-sm text-gray-900">${Utils.formatDateTime(rec.timestamp)}</td>
+            <td class="px-4 py-3 text-sm text-gray-900">${rec.user_name || rec.user_id || '-'}</td>
+            <td class="px-4 py-3 text-sm text-gray-900">${Utils.formatDuration(rec.duration)}</td>
+            <td class="px-4 py-3 text-sm text-gray-600 max-w-md truncate">${rec.asr_text || rec.content_normalized || '-'}</td>
+            <td class="px-4 py-3 text-center">
+                <button onclick="playRecording(${rec.id})" class="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
+                    ▶ 播放
+                </button>
+            </td>
+        </tr>
+    `).join('');
+
+    updateBatchButtons();
+}
+
+// 渲染分页
+function renderPagination(page, totalPages) {
+    const container = document.getElementById('paginationContainer');
+
+    if (totalPages <= 1) {
+        container.innerHTML = '';
+        return;
+    }
+
+    let html = '<div class="flex items-center justify-center space-x-2 mt-6">';
+
+    // 上一页
+    html += `<button onclick="loadRecordings(${page - 1})" class="px-4 py-2 rounded border ${page === 1 ? 'text-gray-400 cursor-not-allowed' : 'hover:bg-gray-100'}" ${page === 1 ? 'disabled' : ''}>上一页</button>`;
+
+    // 页码
+    for (let i = 1; i <= totalPages; i++) {
+        if (i === 1 || i === totalPages || (i >= page - 2 && i <= page + 2)) {
+            html += `<button onclick="loadRecordings(${i})" class="px-4 py-2 rounded border ${i === page ? 'bg-blue-600 text-white' : 'hover:bg-gray-100'}">${i}</button>`;
+        } else if (i === page - 3 || i === page + 3) {
+            html += '<span class="px-2">...</span>';
+        }
+    }
+
+    // 下一页
+    html += `<button onclick="loadRecordings(${page + 1})" class="px-4 py-2 rounded border ${page === totalPages ? 'text-gray-400 cursor-not-allowed' : 'hover:bg-gray-100'}" ${page === totalPages ? 'disabled' : ''}>下一页</button>`;
+
+    html += '</div>';
+    html += `<p class="text-center text-gray-500 text-sm mt-2">第 ${page}/${totalPages} 页</p>`;
+
+    container.innerHTML = html;
+}
+
+// 播放录音
+async function playRecording(id) {
+    try {
+        const response = await fetchAPI(`/recordings/${id}`);
+        if (response.code === 0 && response.data) {
+            const rec = response.data;
+
+            // 设置播放器信息
+            document.getElementById('playerUser').textContent = `用户: ${rec.user_name || rec.user_id || '-'}`;
+            document.getElementById('playerTime').textContent = Utils.formatDateTime(rec.timestamp);
+            document.getElementById('playerText').textContent = rec.asr_text || rec.content_normalized || '暂无识别文本';
+
+            // 设置音频源
+            const audio = document.getElementById('audioPlayer');
+            audio.src = `/${rec.filepath}`;
+
+            // 显示播放器
+            const modal = document.getElementById('playerModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+
+            // 播放音频
+            audio.play();
+            currentAudio = audio;
+        }
+    } catch (error) {
+        console.error('播放失败:', error);
+        showMessage('播放失败', 'error');
+    }
+}
+
+// 关闭播放器
+function closePlayerModal() {
+    const modal = document.getElementById('playerModal');
+    const audio = document.getElementById('audioPlayer');
+
+    audio.pause();
+    audio.src = '';
+    currentAudio = null;
+
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+// 切换播放/暂停
+function togglePlay() {
+    if (!currentAudio) return;
+
+    if (currentAudio.paused) {
+        currentAudio.play();
+        document.getElementById('playIcon').classList.add('hidden');
+        document.getElementById('pauseIcon').classList.remove('hidden');
+    } else {
+        currentAudio.pause();
+        document.getElementById('playIcon').classList.remove('hidden');
+        document.getElementById('pauseIcon').classList.add('hidden');
+    }
+}
+
+// 后退15秒
+function seekBackward() {
+    if (!currentAudio) return;
+    currentAudio.currentTime = Math.max(0, currentAudio.currentTime - 15);
+}
+
+// 前进15秒
+function seekForward() {
+    if (!currentAudio) return;
+    currentAudio.currentTime = Math.min(currentAudio.duration, currentAudio.currentTime + 15);
+}
+
+// 格式化时间
+function formatTime(seconds) {
+    if (!seconds || isNaN(seconds)) return '00:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+// 进度条点击
+document.getElementById('progressContainer')?.addEventListener('click', (e) => {
+    if (!currentAudio) return;
+    const rect = e.target.getBoundingClientRect();
+    const percent = (e.clientX - rect.left) / rect.width;
+    currentAudio.currentTime = percent * currentAudio.duration;
+});
+
+// 音频时间更新
+document.getElementById('audioPlayer')?.addEventListener('timeupdate', () => {
+    const audio = currentAudio;
+    if (!audio) return;
+
+    const percent = (audio.currentTime / audio.duration) * 100;
+    document.getElementById('progressBar').style.width = `${percent}%`;
+    document.getElementById('currentTime').textContent = formatTime(audio.currentTime);
+    document.getElementById('duration').textContent = formatTime(audio.duration);
+});
+
+// 音频结束
+document.getElementById('audioPlayer')?.addEventListener('ended', () => {
+    document.getElementById('playIcon').classList.remove('hidden');
+    document.getElementById('pauseIcon').classList.add('hidden');
+});
+
+// 切换录音选择
+function toggleRecording(id) {
+    if (selectedRecordings.has(id)) {
+        selectedRecordings.delete(id);
+    } else {
+        selectedRecordings.add(id);
+    }
+    updateBatchButtons();
+}
+
+// 全选/取消全选
+function toggleSelectAll() {
+    const checkboxes = document.querySelectorAll('.recording-checkbox');
+    const allSelected = Array.from(checkboxes).every(cb => cb.checked);
+
+    checkboxes.forEach(cb => {
+        const id = parseInt(cb.dataset.id);
+        if (allSelected) {
+            cb.checked = false;
+            selectedRecordings.delete(id);
+        } else {
+            cb.checked = true;
+            selectedRecordings.add(id);
+        }
+    });
+
+    updateBatchButtons();
+}
+
+// 清除选择
+function clearSelection() {
+    selectedRecordings.clear();
+    const checkboxes = document.querySelectorAll('.recording-checkbox');
+    checkboxes.forEach(cb => cb.checked = false);
+    updateBatchButtons();
+}
+
+// 更新批量按钮
+function updateBatchButtons() {
+    const batchBar = document.getElementById('batchBar');
+    const batchDeleteBtn = document.getElementById('batchDeleteBtn');
+    const selectAllCheckbox = document.getElementById('selectAll');
+    const selectedCount = document.getElementById('selectedCount');
+
+    selectedCount.textContent = selectedRecordings.size;
+
+    if (selectedRecordings.size > 0) {
+        batchBar.classList.remove('hidden');
+        batchDeleteBtn.classList.remove('hidden');
+    } else {
+        batchBar.classList.add('hidden');
+        batchDeleteBtn.classList.add('hidden');
+    }
+}
+
+// 批量删除
+document.getElementById('batchDeleteBtn')?.addEventListener('click', async () => {
+    if (selectedRecordings.size === 0) return;
+
+    if (!confirm(`确定要删除选中的 ${selectedRecordings.size} 条录音吗？`)) return;
+
+    try {
+        const response = await fetchAPI('/recordings/batch-delete', {
+            method: 'POST',
+            body: JSON.stringify({ ids: Array.from(selectedRecordings) })
+        });
+
+        if (response.code === 0) {
+            showMessage(`成功删除 ${response.data.deleted_count} 条录音`, 'success');
+            selectedRecordings.clear();
+            loadRecordings(currentPage);
+        } else {
+            showMessage(response.message || '删除失败', 'error');
+        }
+    } catch (error) {
+        console.error('删除失败:', error);
+        showMessage('删除失败', 'error');
+    }
+});
+
+// 筛选事件监听
+document.getElementById('dateFilter').addEventListener('change', (e) => {
+    currentFilter.date = e.target.value;
+    loadRecordings(1);
+});
+
+document.getElementById('userFilter').addEventListener('change', (e) => {
+    currentFilter.user = e.target.value;
+    loadRecordings(1);
+});
+
+// 工具函数
+function showLoading(show) {
+    document.getElementById('loadingIndicator').classList.toggle('hidden', !show);
+}
+
+function showEmpty(show) {
+    document.getElementById('emptyState').classList.toggle('hidden', !show);
+}
+</script>
+{% endblock %}
