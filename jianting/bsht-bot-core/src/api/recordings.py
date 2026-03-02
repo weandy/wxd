@@ -44,6 +44,7 @@ async def get_recordings(
     date: Optional[str] = None,
     user_id: Optional[str] = None,
     channel_id: Optional[int] = None,
+    min_duration: Optional[float] = None,
     search: Optional[str] = None,
     db: Database = Depends(get_db)
 ):
@@ -56,6 +57,8 @@ async def get_recordings(
         date: 日期筛选 (YYYY-MM-DD)
         user_id: 用户 ID 筛选
         channel_id: 频道 ID 筛选
+        min_duration: 最小时长筛选（秒）
+        search: 搜索关键词
         db: 数据库实例
 
     Returns:
@@ -73,6 +76,7 @@ async def get_recordings(
         recognized=recognized,
         user_id=user_id,
         date=date,
+        min_duration=min_duration,
         search=search,
         limit=page_size,
         offset=offset
@@ -133,6 +137,10 @@ async def get_recordings(
     if date:
         count_query += " AND DATE(timestamp) = ?"
         count_params.append(date)
+
+    if min_duration:
+        count_query += " AND duration >= ?"
+        count_params.append(min_duration)
 
     if search:
         count_query += " AND (asr_text LIKE ? OR content_normalized LIKE ?)"

@@ -736,6 +736,7 @@ class Database:
                        recognized: Optional[bool] = None,
                        user_id: Optional[str] = None,
                        date: Optional[str] = None,
+                       min_duration: Optional[float] = None,
                        search: Optional[str] = None,
                        limit: int = 100,
                        offset: int = 0) -> List[Recording]:
@@ -766,6 +767,11 @@ class Database:
             # 按日期筛选 - 使用 DATE 函数提取日期部分
             query += " AND DATE(timestamp) = ?"
             params.append(date)
+
+        if min_duration:
+            # 按最小时长筛选
+            query += " AND duration >= ?"
+            params.append(min_duration)
 
         if search:
             # 搜索识别文本或归一化文本

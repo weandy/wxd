@@ -27,6 +27,19 @@
             </select>
         </div>
 
+        <!-- 时长筛选 -->
+        <div class="flex-1 min-w-[200px]">
+            <label class="block text-sm font-medium text-gray-700 mb-1">最小时长</label>
+            <select id="durationFilter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <option value="">全部时长</option>
+                <option value="0.5">≥ 0.5秒</option>
+                <option value="1">≥ 1秒</option>
+                <option value="5">≥ 5秒</option>
+                <option value="10">≥ 10秒</option>
+                <option value="20">≥ 20秒</option>
+            </select>
+        </div>
+
         <!-- 搜索框 -->
         <div class="flex-1 min-w-[300px]">
             <label class="block text-sm font-medium text-gray-700 mb-1">搜索</label>
@@ -176,6 +189,7 @@ let pageSize = 10;
 let currentFilter = {
     date: '',
     user: '',
+    duration: '',
     search: ''
 };
 let selectedRecordings = new Set();
@@ -210,6 +224,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // 用户筛选事件
     document.getElementById('userFilter').addEventListener('change', (e) => {
         currentFilter.user = e.target.value;
+        loadRecordings(1);
+    });
+
+    // 时长筛选事件
+    document.getElementById('durationFilter').addEventListener('change', (e) => {
+        currentFilter.duration = e.target.value;
         loadRecordings(1);
     });
 });
@@ -263,6 +283,7 @@ async function loadRecordings(page) {
 
         if (currentFilter.date) params.append('date', currentFilter.date);
         if (currentFilter.user) params.append('user_id', currentFilter.user);
+        if (currentFilter.duration) params.append('min_duration', currentFilter.duration);
         if (currentFilter.search) params.append('search', currentFilter.search);
 
         const response = await fetchAPI(`/recordings?${params.toString()}`);
