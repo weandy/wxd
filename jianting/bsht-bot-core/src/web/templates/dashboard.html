@@ -5,53 +5,371 @@
 {% block content %}
 <div class="mb-6">
     <h1 class="text-3xl font-bold text-gray-800">📊 统计仪表盘</h1>
-    <p class="text-gray-600 mt-1">系统数据概览</p>
+    <p class="text-gray-600 mt-1">查看录音数据和统计信息</p>
 </div>
 
 <!-- 概览卡片 -->
 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+    <!-- 总录音数 -->
     <div class="bg-white p-6 rounded-lg shadow">
-        <div class="flex items-center">
-            <div class="text-3xl mr-4">🎙️</div>
+        <div class="flex items-center justify-between">
             <div>
-                <p class="text-gray-500 text-sm">总录音</p>
-                <p class="text-2xl font-bold">-</p>
+                <p class="text-sm font-medium text-gray-500">总录音数</p>
+                <p id="totalRecordings" class="text-3xl font-bold text-gray-800 mt-2">-</p>
+                <p id="todayRecordings" class="text-sm text-gray-500 mt-1">今日: -</p>
             </div>
+            <div class="text-4xl">🎙️</div>
         </div>
     </div>
+
+    <!-- 识别率 -->
     <div class="bg-white p-6 rounded-lg shadow">
-        <div class="flex items-center">
-            <div class="text-3xl mr-4">📅</div>
+        <div class="flex items-center justify-between">
             <div>
-                <p class="text-gray-500 text-sm">今日</p>
-                <p class="text-2xl font-bold">-</p>
+                <p class="text-sm font-medium text-gray-500">识别率</p>
+                <p id="recognitionRate" class="text-3xl font-bold text-gray-800 mt-2">-%</p>
+                <p id="recognizedCount" class="text-sm text-gray-500 mt-1">已识别: -</p>
             </div>
+            <div class="text-4xl">✅</div>
         </div>
     </div>
+
+    <!-- 总时长 -->
     <div class="bg-white p-6 rounded-lg shadow">
-        <div class="flex items-center">
-            <div class="text-3xl mr-4">👥</div>
+        <div class="flex items-center justify-between">
             <div>
-                <p class="text-gray-500 text-sm">活跃用户</p>
-                <p class="text-2xl font-bold">-</p>
+                <p class="text-sm font-medium text-gray-500">总时长</p>
+                <p id="totalDuration" class="text-3xl font-bold text-gray-800 mt-2">-</p>
+                <p class="text-sm text-gray-500 mt-1">分钟</p>
             </div>
+            <div class="text-4xl">⏱️</div>
         </div>
     </div>
+
+    <!-- 活跃用户 -->
     <div class="bg-white p-6 rounded-lg shadow">
-        <div class="flex items-center">
-            <div class="text-3xl mr-4">⏱️</div>
+        <div class="flex items-center justify-between">
             <div>
-                <p class="text-gray-500 text-sm">总时长</p>
-                <p class="text-2xl font-bold">-</p>
+                <p class="text-sm font-medium text-gray-500">7天活跃用户</p>
+                <p id="activeUsers" class="text-3xl font-bold text-gray-800 mt-2">-</p>
+                <p class="text-sm text-gray-500 mt-1">用户</p>
             </div>
+            <div class="text-4xl">👥</div>
         </div>
     </div>
 </div>
 
-<!-- 提示信息 -->
-<div class="bg-blue-50 border border-blue-200 rounded-lg p-6">
-    <h3 class="text-lg font-semibold text-blue-800 mb-2">🚧 开发中</h3>
-    <p class="text-blue-700">统计仪表盘功能正在开发中，敬请期待...</p>
-    <p class="text-blue-600 text-sm mt-2">当前 Phase 1.1: 项目结构搭建完成</p>
+<!-- 图表区域 -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+    <!-- 识别率趋势图 -->
+    <div class="bg-white p-6 rounded-lg shadow">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-bold text-gray-800">📈 识别率趋势（7天）</h2>
+            <button onclick="loadDashboard()" class="text-sm text-blue-600 hover:text-blue-800">🔄 刷新</button>
+        </div>
+        <div class="h-80">
+            <canvas id="trendChart"></canvas>
+        </div>
+    </div>
+
+    <!-- 信号类型分布 -->
+    <div class="bg-white p-6 rounded-lg shadow">
+        <div class="mb-4">
+            <h2 class="text-xl font-bold text-gray-800">📊 信号类型分布</h2>
+        </div>
+        <div class="h-80">
+            <canvas id="signalChart"></canvas>
+        </div>
+    </div>
 </div>
+
+<!-- 活跃用户排行榜 -->
+<div class="bg-white p-6 rounded-lg shadow">
+    <h2 class="text-xl font-bold text-gray-800 mb-4">🏆 活跃用户排行榜</h2>
+    <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">排名</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">用户</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">录音数</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">总时长</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">最后活跃</th>
+                </tr>
+            </thead>
+            <tbody id="topUsersTable" class="divide-y divide-gray-200">
+                <tr>
+                    <td colspan="5" class="px-4 py-8 text-center text-gray-500">加载中...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 加载指示器 -->
+<div id="loadingIndicator" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <div class="bg-white p-6 rounded-lg shadow-lg flex items-center">
+        <svg class="animate-spin h-6 w-6 text-blue-600 mr-3" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 8 0v8h0z"></path>
+        </svg>
+        <span class="text-gray-700">加载中...</span>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let trendChart = null;
+let signalChart = null;
+
+// 页面加载时初始化
+document.addEventListener('DOMContentLoaded', () => {
+    loadDashboard();
+});
+
+// 加载仪表盘数据
+async function loadDashboard() {
+    showLoading(true);
+    try {
+        // 并行加载所有数据
+        const [overview, trend, signalTypes, topUsers] = await Promise.all([
+            fetchAPI('/dashboard/overview'),
+            fetchAPI('/dashboard/trend?days=7'),
+            fetchAPI('/dashboard/signal-types'),
+            fetchAPI('/dashboard/top-users?limit=10')
+        ]);
+
+        // 更新概览卡片
+        if (overview.code === 0) {
+            updateOverviewCards(overview.data);
+        }
+
+        // 更新趋势图
+        if (trend.code === 0) {
+            renderTrendChart(trend.data);
+        }
+
+        // 更新信号类型分布图
+        if (signalTypes.code === 0) {
+            renderSignalChart(signalTypes.data);
+        }
+
+        // 更新用户排行榜
+        if (topUsers.code === 0) {
+            renderTopUsers(topUsers.data);
+        }
+    } catch (error) {
+        console.error('加载仪表盘失败:', error);
+        showMessage('加载失败', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// 更新概览卡片
+function updateOverviewCards(data) {
+    document.getElementById('totalRecordings').textContent = data.total_recordings;
+    document.getElementById('recognitionRate').textContent = data.recognition_rate + '%';
+    document.getElementById('recognizedCount').textContent = `已识别: ${data.recognized_count}`;
+    document.getElementById('totalDuration').textContent = data.total_duration;
+    document.getElementById('activeUsers').textContent = data.active_users_7d;
+    document.getElementById('todayRecordings').textContent = `今日: ${data.today_recordings}`;
+
+    // 根据增长率显示颜色
+    const growthElement = document.getElementById('todayRecordings');
+    if (data.growth_rate > 0) {
+        growthElement.innerHTML = `今日: ${data.today_recordings} <span class="text-green-600">↑${data.growth_rate.toFixed(1)}%</span>`;
+    } else if (data.growth_rate < 0) {
+        growthElement.innerHTML = `今日: ${data.today_recordings} <span class="text-red-600">↓${Math.abs(data.growth_rate).toFixed(1)}%</span>`;
+    }
+}
+
+// 渲染趋势图
+function renderTrendChart(data) {
+    const ctx = document.getElementById('trendChart').getContext('2d');
+
+    // 销毁旧图表
+    if (trendChart) {
+        trendChart.destroy();
+    }
+
+    const labels = data.data.map(d => d.date.substring(5)); // MM-DD
+    const totals = data.data.map(d => d.total);
+    const rates = data.data.map(d => d.rate);
+
+    trendChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: '每日录音数',
+                    data: totals,
+                    borderColor: 'rgb(59, 130, 246)',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                },
+                {
+                    label: '识别率 (%)',
+                    data: rates,
+                    borderColor: 'rgb(16, 185, 129)',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                    fill: false,
+                    tension: 0.4,
+                    yAxisID: 'y1'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                intersect: false,
+                mode: 'index',
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: '录音数'
+                    }
+                },
+                y1: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    beginAtZero: true,
+                    max: 100,
+                    title: {
+                        display: true,
+                        text: '识别率 (%)'
+                    },
+                    grid: {
+                        drawOnChartArea: false, // 只在右侧显示刻度
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.dataset.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            label += context.parsed.y;
+                            if (context.datasetIndex === 1) {
+                                label += '%';
+                            }
+                            return label;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// 渲染信号类型分布饼图
+function renderSignalChart(data) {
+    const ctx = document.getElementById('signalChart').getContext('2d');
+
+    // 销毁旧图表
+    if (signalChart) {
+        signalChart.destroy();
+    }
+
+    const labels = data.signal_types.map(s => s.type);
+    const counts = data.signal_types.map(s => s.count);
+    const colors = [
+        '#3B82F6', '#10B981', '#F59E0B', '#EF4444',
+        '#8B5CF6', '#EC4899', '#14B8A6', '#F97316'
+    ];
+
+    signalChart = new Chart(ctx, {
+        type: 'pie',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: counts,
+                backgroundColor: colors.slice(0, labels.length),
+                borderWidth: 2,
+                borderColor: '#ffffff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'right',
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const label = context.label || '';
+                            const value = context.parsed || 0;
+                            const duration = data.signal_types[context.dataIndex].duration;
+                            return `${label}: ${value}条 (${duration}分钟)`;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// 渲染用户排行榜
+function renderTopUsers(data) {
+    const table = document.getElementById('topUsersTable');
+
+    if (!data.top_users || data.top_users.length === 0) {
+        table.innerHTML = `
+            <tr>
+                <td colspan="5" class="px-4 py-8 text-center text-gray-500">暂无数据</td>
+            </tr>
+        `;
+        return;
+    }
+
+    table.innerHTML = data.top_users.map((user, index) => `
+        <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3">
+                <span class="flex items-center">
+                    ${index < 3 ? ['🥇', '🥈', '🥉'][index] : `#${index + 1}`}
+                </span>
+            </td>
+            <td class="px-4 py-3">
+                <div class="flex items-center">
+                    <div class="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-white text-sm font-bold mr-2">
+                        ${(user.user_name || user.user_id || '?').charAt(0).toUpperCase()}
+                    </div>
+                    <span class="font-medium">${user.user_name || user.user_id}</span>
+                </div>
+            </td>
+            <td class="px-4 py-3 text-gray-900">${user.recording_count}</td>
+            <td class="px-4 py-3 text-gray-600">${user.total_duration}分钟</td>
+            <td class="px-4 py-3 text-sm text-gray-500">${Utils.formatDateTime(user.last_active)}</td>
+        </tr>
+    `).join('');
+}
+
+// 显示/隐藏加载指示器
+function showLoading(show) {
+    const indicator = document.getElementById('loadingIndicator');
+    if (show) {
+        indicator.classList.remove('hidden');
+        indicator.classList.add('flex');
+    } else {
+        indicator.classList.add('hidden');
+        indicator.classList.remove('flex');
+    }
+}
+</script>
 {% endblock %}

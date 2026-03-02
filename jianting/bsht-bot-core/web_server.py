@@ -136,8 +136,12 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 from src.api import recordings
 app.include_router(recordings.router, prefix="/api", tags=["recordings"])
 
+# 仪表盘 API
+from src.api import dashboard
+app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
+
 # 其他 API 路由将在后续添加
-# from src.api import rules, push, broadcast, dashboard, monitor
+# from src.api import rules, push, broadcast, monitor
 # app.include_router(rules.router, prefix="/api", tags=["rules"])
 # ...
 
