@@ -108,6 +108,16 @@ async def login_page(request: Request):
     )
 
 
+@app.get("/recordings", response_class=HTMLResponse)
+async def recordings_page(request: Request):
+    """录音列表页面"""
+    user = require_auth(request)
+    return templates.TemplateResponse(
+        "recordings.html",
+        {"request": request, "current_user": user}
+    )
+
+
 @app.get("/health")
 async def health_check():
     """健康检查"""
@@ -122,9 +132,13 @@ async def health_check():
 from src.api import auth
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 
+# 录音 API
+from src.api import recordings
+app.include_router(recordings.router, prefix="/api", tags=["recordings"])
+
 # 其他 API 路由将在后续添加
-# from src.api import recordings, rules, push, broadcast, dashboard, monitor
-# app.include_router(recordings.router, prefix="/api", tags=["recordings"])
+# from src.api import rules, push, broadcast, dashboard, monitor
+# app.include_router(rules.router, prefix="/api", tags=["rules"])
 # ...
 
 
@@ -133,9 +147,9 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 # ====================
 
 if __name__ == "__main__":
-    print("🚀 BSHT Bot Web 服务器启动...")
-    print(f"📍 访问地址: http://localhost:8000")
-    print(f"📁 工作目录: {BASE_DIR}")
+    print("BSHT Bot Web 服务器启动...")
+    print(f"访问地址: http://localhost:8000")
+    print(f"工作目录: {BASE_DIR}")
 
     uvicorn.run(
         "web_server:app",
