@@ -1,0 +1,73 @@
+/*
+ * BSHT Bot Web 平台 - 自定义样式
+ * 主要使用 Tailwind CSS，这里只放特殊样式
+ */
+
+/* 动画 */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+    animation: fadeIn 0.3s ease-out;
+}
+
+/* 消息提示 */
+.message-toast {
+    animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+/* 加载动画 */
+.spinner {
+    border: 3px solid #f3f4f6;
+    border-top: 3px solid #3b82f6;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* 表格样式优化 */
+table {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+table th {
+    background-color: #f9fafb;
+    font-weight: 600;
+}
+
+/* 音频播放器 */
+audio {
+    max-width: 100%;
+    height: 32px;
+}
+
+/* 移动端优化 */
+@media (max-width: 768px) {
+    .nav-menu {
+        display: none;
+    }
+
+    .nav-menu.active {
+        display: block;
+        position: absolute;
+        top: 64px;
+        left: 0;
+        right: 0;
+        background-color: #2563eb;
+        padding: 1rem;
+    }
+}

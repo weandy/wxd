@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}BSHT Bot 管理平台{% endblock %}</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js (用于图表) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- 自定义样式 -->
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        /* 自定义样式 */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body class="bg-gray-50 min-h-screen">
+    {% block body %}
+    <!-- 导航栏 -->
+    {% if current_user %}
+    <nav class="bg-blue-600 text-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center space-x-4">
+                    <span class="font-bold text-xl">📡 BSHT Bot</span>
+                    <div class="hidden md:flex space-x-1">
+                        <a href="/dashboard" class="px-3 py-2 rounded hover:bg-blue-700 {% if request.path == '/dashboard' %}bg-blue-700{% endif %}">📊 统计</a>
+                        <a href="/recordings" class="px-3 py-2 rounded hover:bg-blue-700 {% if request.path == '/recordings' %}bg-blue-700{% endif %}">🎙️ 录音</a>
+                        <a href="/rules" class="px-3 py-2 rounded hover:bg-blue-700 {% if request.path == '/rules' %}bg-blue-700{% endif %}">📝 规则</a>
+                        <a href="/push" class="px-3 py-2 rounded hover:bg-blue-700 {% if request.path == '/push' %}bg-blue-700{% endif %}">🔔 推送</a>
+                        <a href="/broadcast" class="px-3 py-2 rounded hover:bg-blue-700 {% if request.path == '/broadcast' %}bg-blue-700{% endif %}">📢 广播</a>
+                        <a href="/monitor" class="px-3 py-2 rounded hover:bg-blue-700 {% if request.path == '/monitor' %}bg-blue-700{% endif %}">🖥️ 监控</a>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm">{{ current_user.nickname or current_user.username }} {% if current_user.role == 'admin' %}(管理员){% endif %}</span>
+                    <a href="/api/auth/logout" class="text-sm hover:underline">登出</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+    {% endif %}
+
+    <!-- 主内容 -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- 页脚 -->
+    <footer class="bg-gray-100 border-t mt-auto">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 text-center text-gray-500 text-sm">
+            BSHT Bot 管理平台 &copy; 2026
+        </div>
+    </footer>
+    {% endblock %}
+
+    <!-- 公共脚本 -->
+    <script src="/static/js/app.js"></script>
+    <script>
+        // API 基础路径
+        const API_BASE = '/api';
+
+        // 通用 API 请求函数
+        async function fetchAPI(endpoint, options = {}) {
+            const response = await fetch(`${API_BASE}${endpoint}`, {
+                ...options,
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...options.headers,
+                },
+            });
+
+            if (!response.ok) {
+                if (response.status === 401) {
+                    // 未登录，跳转到登录页
+                    window.location.href = '/login';
+                    return;
+                }
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            return await response.json();
+        }
+
+        // 显示消息提示
+        function showMessage(message, type = 'success') {
+            const alertClass = type === 'success' ? 'bg-green-100 text-green-800 border-green-400' :
+                              type === 'error' ? 'bg-red-100 text-red-800 border-red-400' :
+                              'bg-blue-100 text-blue-800 border-blue-400';
+
+            const div = document.createElement('div');
+            div.className = `fixed top-4 right-4 px-4 py-3 rounded border shadow-lg ${alertClass} z-50 fade-in`;
+            div.textContent = message;
+            document.body.appendChild(div);
+
+            setTimeout(() => div.remove(), 3000);
+        }
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
