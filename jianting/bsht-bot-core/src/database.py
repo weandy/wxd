@@ -730,30 +730,43 @@ class Database:
 
         return affected > 0
     
-    def get_recordings(self, 
+    def get_recordings(self,
                        channel_id: Optional[int] = None,
                        recorder_type: Optional[str] = None,
                        recognized: Optional[bool] = None,
+                       user_id: Optional[str] = None,
+                       search: Optional[str] = None,
                        limit: int = 100,
                        offset: int = 0) -> List[Recording]:
         """查询录音记录"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
+
         query = "SELECT * FROM recordings WHERE 1=1"
         params = []
-        
+
         if channel_id:
             query += " AND channel_id = ?"
             params.append(channel_id)
-        
+
         if recorder_type:
             query += " AND recorder_type = ?"
             params.append(recorder_type)
-        
+
         if recognized is not None:
             query += " AND recognized = ?"
             params.append(1 if recognized else 0)
+
+        if user_id:
+            query += " AND user_id = ?"
+            params.append(user_id)
+
+        if search:
+            # 搜索识别文本或归一化文本
+            query += " AND (asr_text LIKE ? OR content_normalized LIKE ?)"
+            search_pattern = f"%{search}%"
+            params.append(search_pattern)
+            params.append(search_pattern)
         
         query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
