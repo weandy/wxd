@@ -38,7 +38,7 @@
                 </div>
                 <div class="flex items-center space-x-4">
                     <span class="text-sm">{{ current_user.nickname or current_user.username }} {% if current_user.role == 'admin' %}(管理员){% endif %}</span>
-                    <a href="/api/auth/logout" class="text-sm hover:underline">登出</a>
+                    <button onclick="doLogout()" class="text-sm hover:underline cursor-pointer">登出</button>
                 </div>
             </div>
         </div>
@@ -98,6 +98,21 @@
             document.body.appendChild(div);
 
             setTimeout(() => div.remove(), 3000);
+        }
+
+        // 登出功能
+        async function doLogout() {
+            try {
+                await fetchAPI('/auth/logout', {
+                    method: 'POST'
+                });
+                // 登出成功，跳转到登录页
+                window.location.href = '/login';
+            } catch (error) {
+                console.error('登出失败:', error);
+                // 即使失败也跳转到登录页
+                window.location.href = '/login';
+            }
         }
     </script>
     {% block scripts %}{% endblock %}

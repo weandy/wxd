@@ -95,6 +95,11 @@ document.addEventListener('DOMContentLoaded', () => {
  * 检查登录状态
  */
 async function checkLoginStatus() {
+    // 如果在登录页面，不检查登录状态（避免循环）
+    if (window.location.pathname === '/login') {
+        return;
+    }
+
     try {
         const response = await fetchAPI('/auth/me');
         if (response.code === 0 && response.data) {

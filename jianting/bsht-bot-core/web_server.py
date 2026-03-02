@@ -99,6 +99,15 @@ async def index(request: Request):
     )
 
 
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    """登录页面"""
+    return templates.TemplateResponse(
+        "login.html",
+        {"request": request}
+    )
+
+
 @app.get("/health")
 async def health_check():
     """健康检查"""
@@ -106,11 +115,16 @@ async def health_check():
 
 
 # ====================
-# API 路由（将在后续添加）
+# API 路由
 # ====================
-# from src.api import auth, recordings, rules, push, broadcast, dashboard, monitor
-# app.include_router(auth.router, prefix="/api")
-# app.include_router(recordings.router, prefix="/api")
+
+# 认证 API
+from src.api import auth
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+
+# 其他 API 路由将在后续添加
+# from src.api import recordings, rules, push, broadcast, dashboard, monitor
+# app.include_router(recordings.router, prefix="/api", tags=["recordings"])
 # ...
 
 
