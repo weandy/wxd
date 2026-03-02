@@ -1,0 +1,794 @@
+{% extends "base.html" %}
+
+{% block title %}纠错规则管理 - BSHT Bot 管理平台{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-3xl font-bold text-gray-800">纠错规则管理</h1>
+    <p class="text-gray-600 mt-1">管理语音识别结果的纠错规则</p>
+</div>
+
+<!-- 统计卡片 -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-medium text-gray-500">总规则数</p>
+                <p id="totalRules" class="text-2xl font-bold text-gray-800 mt-1">-</p>
+            </div>
+            <div class="text-3xl">📋</div>
+        </div>
+    </div>
+
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-medium text-gray-500">已启用</p>
+                <p id="enabledRules" class="text-2xl font-bold text-green-600 mt-1">-</p>
+            </div>
+            <div class="text-3xl">✅</div>
+        </div>
+    </div>
+
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-medium text-gray-500">已禁用</p>
+                <p id="disabledRules" class="text-2xl font-bold text-gray-400 mt-1">-</p>
+            </div>
+            <div class="text-3xl">⏸️</div>
+        </div>
+    </div>
+
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-medium text-gray-500">规则类型</p>
+                <p id="ruleTypes" class="text-2xl font-bold text-blue-600 mt-1">-</p>
+            </div>
+            <div class="text-3xl">🏷️</div>
+        </div>
+    </div>
+</div>
+
+<!-- 操作栏 -->
+<div class="bg-white p-4 rounded-lg shadow mb-6">
+    <div class="flex flex-wrap items-center gap-4">
+        <!-- 搜索框 -->
+        <div class="flex-1 min-w-[200px]">
+            <input type="text" id="searchInput" placeholder="搜索规则名称、模式、描述..."
+                   class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+
+        <!-- 类型筛选 -->
+        <select id="typeFilter" class="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">所有类型</option>
+            <option value="replace">简单替换</option>
+            <option value="regex">正则表达式</option>
+            <option value="signal_type">信号类型</option>
+        </select>
+
+        <!-- 分类筛选 -->
+        <select id="categoryFilter" class="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">所有分类</option>
+        </select>
+
+        <!-- 状态筛选 -->
+        <select id="enabledFilter" class="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">所有状态</option>
+            <option value="true">已启用</option>
+            <option value="false">已禁用</option>
+        </select>
+
+        <!-- 搜索按钮 -->
+        <button onclick="performSearch()" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+            搜索
+        </button>
+
+        <!-- 添加规则按钮 -->
+        <button onclick="showAddRuleModal()" class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+            添加规则
+        </button>
+
+        <!-- 批量删除按钮 -->
+        <button onclick="batchDeleteRules()" class="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+            批量删除
+        </button>
+    </div>
+</div>
+
+<!-- 规则列表 -->
+<div class="bg-white rounded-lg shadow">
+    <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-4 py-3">
+                        <input type="checkbox" id="selectAll" onchange="toggleSelectAll()"
+                               class="w-4 h-4 text-blue-600 rounded">
+                    </th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">规则名称</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">类型</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">匹配模式</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">替换内容</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">分类</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">优先级</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">状态</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">操作</th>
+                </tr>
+            </thead>
+            <tbody id="rulesTable" class="divide-y divide-gray-200">
+                <tr>
+                    <td colspan="9" class="px-4 py-8 text-center text-gray-500">加载中...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 分页 -->
+    <div id="pagination" class="p-4 border-t"></div>
+</div>
+
+<!-- 添加/编辑规则模态框 -->
+<div id="ruleModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 id="modalTitle" class="text-xl font-bold text-gray-800">添加规则</h2>
+                <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <form id="ruleForm" onsubmit="saveRule(event)">
+                <input type="hidden" id="ruleId">
+
+                <div class="space-y-4">
+                    <!-- 规则名称 -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">规则名称 *</label>
+                        <input type="text" id="ruleName" required
+                               class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+
+                    <!-- 规则类型 -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">规则类型 *</label>
+                        <select id="ruleType" required onchange="handleTypeChange()"
+                                class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="replace">简单替换</option>
+                            <option value="regex">正则表达式</option>
+                            <option value="signal_type">信号类型</option>
+                        </select>
+                    </div>
+
+                    <!-- 匹配模式 -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">匹配模式 *</label>
+                        <input type="text" id="rulePattern" required
+                               class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               placeholder="要匹配的文本或正则表达式">
+                    </div>
+
+                    <!-- 替换内容 -->
+                    <div id="replacementField">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">替换内容</label>
+                        <input type="text" id="ruleReplacement"
+                               class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               placeholder="替换后的文本（留空则删除）">
+                    </div>
+
+                    <!-- 分类 -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">分类</label>
+                        <input type="text" id="ruleCategory" list="categoryList"
+                               class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               placeholder="规则分类">
+                        <datalist id="categoryList"></datalist>
+                    </div>
+
+                    <!-- 优先级 -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">优先级</label>
+                        <input type="number" id="rulePriority" value="0" min="0" max="100"
+                               class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <p class="text-sm text-gray-500 mt-1">数值越大优先级越高（0-100）</p>
+                    </div>
+
+                    <!-- 描述 -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">描述</label>
+                        <textarea id="ruleDescription" rows="3"
+                                  class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  placeholder="规则说明"></textarea>
+                    </div>
+
+                    <!-- 启用状态 -->
+                    <div>
+                        <label class="flex items-center">
+                            <input type="checkbox" id="ruleEnabled" checked
+                                   class="w-4 h-4 text-blue-600 rounded">
+                            <span class="ml-2 text-sm text-gray-700">启用此规则</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="flex justify-end space-x-3 mt-6">
+                    <button type="button" onclick="closeModal()"
+                            class="px-6 py-2 border rounded-lg hover:bg-gray-50">
+                        取消
+                    </button>
+                    <button type="submit"
+                            class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                        保存
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 测试规则模态框 -->
+<div id="testModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <div class="bg-white rounded-lg shadow-xl max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <div class="p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-xl font-bold text-gray-800">测试规则</h2>
+                <button onclick="closeTestModal()" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">输入文本</label>
+                    <textarea id="testInput" rows="4"
+                              class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              placeholder="输入要测试的文本..."></textarea>
+                </div>
+
+                <button onclick="testRules()" class="w-full px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    运行测试
+                </button>
+
+                <div id="testResult" class="hidden">
+                    <h3 class="text-lg font-medium text-gray-800 mb-2">测试结果</h3>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">原始文本</label>
+                        <div id="testOriginal" class="p-3 bg-gray-50 rounded-lg border"></div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">处理后文本</label>
+                        <div id="testOutput" class="p-3 bg-green-50 rounded-lg border"></div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">应用的规则</label>
+                        <div id="testApplied" class="space-y-2"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPage = 1;
+let pageSize = 10;
+let totalPages = 1;
+let selectedRules = new Set();
+
+// 当前筛选条件
+let currentFilter = {
+    type: '',
+    category: '',
+    enabled: '',
+    search: ''
+};
+
+// 页面加载时初始化
+document.addEventListener('DOMContentLoaded', () => {
+    loadStats();
+    loadCategories();
+    loadRules(1);
+
+    // 搜索框回车事件
+    document.getElementById('searchInput').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            performSearch();
+        }
+    });
+});
+
+// 加载统计数据
+async function loadStats() {
+    try {
+        const response = await fetchAPI('/rules/stats');
+        if (response.code === 0) {
+            const stats = response.data;
+            document.getElementById('totalRules').textContent = stats.total;
+            document.getElementById('enabledRules').textContent = stats.enabled;
+            document.getElementById('disabledRules').textContent = stats.disabled;
+            document.getElementById('ruleTypes').textContent = Object.keys(stats.by_type).length;
+        }
+    } catch (error) {
+        console.error('加载统计失败:', error);
+    }
+}
+
+// 加载分类列表
+async function loadCategories() {
+    try {
+        const response = await fetchAPI('/rules/categories');
+        if (response.code === 0) {
+            const categories = response.data.categories;
+
+            // 更新筛选下拉框
+            const selectFilter = document.getElementById('categoryFilter');
+            selectFilter.innerHTML = '<option value="">所有分类</option>';
+            categories.forEach(cat => {
+                selectFilter.innerHTML += `<option value="${cat}">${cat}</option>`;
+            });
+
+            // 更新表单中的数据列表
+            const datalist = document.getElementById('categoryList');
+            datalist.innerHTML = '';
+            categories.forEach(cat => {
+                const option = document.createElement('option');
+                option.value = cat;
+                datalist.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('加载分类失败:', error);
+    }
+}
+
+// 加载规则列表
+async function loadRules(page) {
+    currentPage = page;
+    showLoading(true);
+
+    try {
+        const params = new URLSearchParams({
+            page: page,
+            page_size: pageSize
+        });
+
+        if (currentFilter.type) params.append('rule_type', currentFilter.type);
+        if (currentFilter.category) params.append('category', currentFilter.category);
+        if (currentFilter.enabled !== '') params.append('is_enabled', currentFilter.enabled === 'true');
+        if (currentFilter.search) params.append('search', currentFilter.search);
+
+        const response = await fetchAPI(`/rules?${params.toString()}`);
+
+        if (response.code === 0) {
+            const { rules, total, total_pages } = response.data;
+            totalPages = total_pages;
+
+            renderRules(rules);
+            renderPagination(page, total_pages, total);
+        }
+    } catch (error) {
+        console.error('加载规则失败:', error);
+        showMessage('加载失败', 'error');
+    } finally {
+        showLoading(false);
+    }
+}
+
+// 渲染规则列表
+function renderRules(rules) {
+    const table = document.getElementById('rulesTable');
+
+    if (!rules || rules.length === 0) {
+        table.innerHTML = `
+            <tr>
+                <td colspan="9" class="px-4 py-8 text-center text-gray-500">暂无数据</td>
+            </tr>
+        `;
+        return;
+    }
+
+    table.innerHTML = rules.map(rule => `
+        <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3">
+                <input type="checkbox" class="rule-checkbox w-4 h-4 text-blue-600 rounded"
+                       value="${rule.id}" ${selectedRules.has(rule.id) ? 'checked' : ''}
+                       onchange="toggleRuleSelection(${rule.id})">
+            </td>
+            <td class="px-4 py-3">
+                <div class="font-medium text-gray-900">${rule.name}</div>
+                ${rule.description ? `<div class="text-sm text-gray-500 truncate max-w-xs">${rule.description}</div>` : ''}
+            </td>
+            <td class="px-4 py-3">
+                <span class="px-2 py-1 text-xs rounded-full ${
+                    rule.rule_type === 'replace' ? 'bg-blue-100 text-blue-800' :
+                    rule.rule_type === 'regex' ? 'bg-purple-100 text-purple-800' :
+                    'bg-green-100 text-green-800'
+                }">
+                    ${rule.rule_type === 'replace' ? '简单替换' : rule.rule_type === 'regex' ? '正则表达式' : '信号类型'}
+                </span>
+            </td>
+            <td class="px-4 py-3 text-gray-600 font-mono text-sm">${escapeHtml(rule.pattern)}</td>
+            <td class="px-4 py-3 text-gray-600 font-mono text-sm">${escapeHtml(rule.replacement || '-')}</td>
+            <td class="px-4 py-3 text-gray-600">${rule.category || '-'}</td>
+            <td class="px-4 py-3 text-gray-600">${rule.priority}</td>
+            <td class="px-4 py-3">
+                <button onclick="toggleRuleStatus(${rule.id})" class="px-3 py-1 text-xs rounded-full ${
+                    rule.is_enabled ? 'bg-green-100 text-green-800 hover:bg-green-200' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }">
+                    ${rule.is_enabled ? '已启用' : '已禁用'}
+                </button>
+            </td>
+            <td class="px-4 py-3">
+                <div class="flex items-center space-x-2">
+                    <button onclick="editRule(${rule.id})" class="text-blue-600 hover:text-blue-800" title="编辑">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                        </svg>
+                    </button>
+                    <button onclick="deleteRule(${rule.id})" class="text-red-600 hover:text-red-800" title="删除">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                    </button>
+                    <button onclick="showTestModal()" class="text-purple-600 hover:text-purple-800" title="测试">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                        </svg>
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+
+    // 更新全选复选框状态
+    updateSelectAllCheckbox();
+}
+
+// 渲染分页
+function renderPagination(page, totalPages, total) {
+    const pagination = document.getElementById('pagination');
+
+    if (totalPages <= 1) {
+        pagination.innerHTML = '';
+        return;
+    }
+
+    let html = '<div class="flex items-center justify-center space-x-2">';
+
+    // 上一页
+    html += `<button onclick="loadRules(${page - 1})"
+            class="px-4 py-2 rounded border ${page === 1 ? 'text-gray-400 cursor-not-allowed' : 'hover:bg-gray-100'}"
+            ${page === 1 ? 'disabled' : ''}>上一页</button>`;
+
+    // 页码
+    for (let i = 1; i <= totalPages; i++) {
+        if (i === 1 || i === totalPages || (i >= page - 2 && i <= page + 2)) {
+            html += `<button onclick="loadRules(${i})"
+                    class="px-4 py-2 rounded border ${i === page ? 'bg-blue-600 text-white' : 'hover:bg-gray-100'}">${i}</button>`;
+        } else if (i === page - 3 || i === page + 3) {
+            html += '<span class="px-2">...</span>';
+        }
+    }
+
+    // 下一页
+    html += `<button onclick="loadRules(${page + 1})"
+            class="px-4 py-2 rounded border ${page === totalPages ? 'text-gray-400 cursor-not-allowed' : 'hover:bg-gray-100'}"
+            ${page === totalPages ? 'disabled' : ''}>下一页</button>`;
+
+    html += '</div>';
+    html += `<p class="text-center text-gray-500 text-sm mt-2">共 ${total} 条规则，第 ${page}/${totalPages} 页</p>`;
+
+    pagination.innerHTML = html;
+}
+
+// 执行搜索
+function performSearch() {
+    currentFilter.search = document.getElementById('searchInput').value;
+    currentFilter.type = document.getElementById('typeFilter').value;
+    currentFilter.category = document.getElementById('categoryFilter').value;
+    currentFilter.enabled = document.getElementById('enabledFilter').value;
+
+    selectedRules.clear();
+    loadRules(1);
+}
+
+// 显示添加规则模态框
+async function showAddRuleModal() {
+    document.getElementById('modalTitle').textContent = '添加规则';
+    document.getElementById('ruleForm').reset();
+    document.getElementById('ruleId').value = '';
+    document.getElementById('ruleEnabled').checked = true;
+
+    const modal = document.getElementById('ruleModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+// 编辑规则
+async function editRule(ruleId) {
+    try {
+        const response = await fetchAPI(`/rules/${ruleId}`);
+        if (response.code === 0) {
+            const rule = response.data;
+
+            document.getElementById('modalTitle').textContent = '编辑规则';
+            document.getElementById('ruleId').value = rule.id;
+            document.getElementById('ruleName').value = rule.name;
+            document.getElementById('ruleType').value = rule.rule_type;
+            document.getElementById('rulePattern').value = rule.pattern;
+            document.getElementById('ruleReplacement').value = rule.replacement || '';
+            document.getElementById('ruleCategory').value = rule.category || '';
+            document.getElementById('rulePriority').value = rule.priority;
+            document.getElementById('ruleDescription').value = rule.description || '';
+            document.getElementById('ruleEnabled').checked = rule.is_enabled;
+
+            handleTypeChange();
+
+            const modal = document.getElementById('ruleModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+    } catch (error) {
+        console.error('加载规则详情失败:', error);
+        showMessage('加载失败', 'error');
+    }
+}
+
+// 保存规则
+async function saveRule(event) {
+    event.preventDefault();
+
+    const ruleId = document.getElementById('ruleId').value;
+    const data = {
+        name: document.getElementById('ruleName').value,
+        rule_type: document.getElementById('ruleType').value,
+        pattern: document.getElementById('rulePattern').value,
+        replacement: document.getElementById('ruleReplacement').value || null,
+        category: document.getElementById('ruleCategory').value || null,
+        priority: parseInt(document.getElementById('rulePriority').value),
+        description: document.getElementById('ruleDescription').value || null,
+        is_enabled: document.getElementById('ruleEnabled').checked
+    };
+
+    try {
+        if (ruleId) {
+            await fetchAPI(`/rules/${ruleId}`, {
+                method: 'PUT',
+                body: JSON.stringify(data)
+            });
+            showMessage('更新成功', 'success');
+        } else {
+            await fetchAPI('/rules', {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+            showMessage('创建成功', 'success');
+        }
+
+        closeModal();
+        loadRules(currentPage);
+        loadStats();
+    } catch (error) {
+        console.error('保存失败:', error);
+        showMessage('保存失败', 'error');
+    }
+}
+
+// 删除规则
+async function deleteRule(ruleId) {
+    if (!confirm('确定要删除这条规则吗？')) {
+        return;
+    }
+
+    try {
+        await fetchAPI(`/rules/${ruleId}`, {
+            method: 'DELETE'
+        });
+        showMessage('删除成功', 'success');
+        loadRules(currentPage);
+        loadStats();
+    } catch (error) {
+        console.error('删除失败:', error);
+        showMessage('删除失败', 'error');
+    }
+}
+
+// 批量删除规则
+async function batchDeleteRules() {
+    const ruleIds = Array.from(selectedRules);
+
+    if (ruleIds.length === 0) {
+        showMessage('请先选择要删除的规则', 'error');
+        return;
+    }
+
+    if (!confirm(`确定要删除选中的 ${ruleIds.length} 条规则吗？`)) {
+        return;
+    }
+
+    try {
+        await fetchAPI('/rules/batch-delete', {
+            method: 'POST',
+            body: JSON.stringify(ruleIds)
+        });
+        showMessage(`成功删除 ${ruleIds.length} 条规则`, 'success');
+        selectedRules.clear();
+        loadRules(currentPage);
+        loadStats();
+    } catch (error) {
+        console.error('批量删除失败:', error);
+        showMessage('批量删除失败', 'error');
+    }
+}
+
+// 切换规则启用状态
+async function toggleRuleStatus(ruleId) {
+    try {
+        await fetchAPI('/rules/toggle', {
+            method: 'POST',
+            body: JSON.stringify(ruleId)
+        });
+        loadRules(currentPage);
+        loadStats();
+    } catch (error) {
+        console.error('切换状态失败:', error);
+        showMessage('切换失败', 'error');
+    }
+}
+
+// 全选/取消全选
+function toggleSelectAll() {
+    const checkbox = document.getElementById('selectAll');
+    const checkboxes = document.querySelectorAll('.rule-checkbox');
+
+    checkboxes.forEach(cb => {
+        cb.checked = checkbox.checked;
+        const ruleId = parseInt(cb.value);
+        if (checkbox.checked) {
+            selectedRules.add(ruleId);
+        } else {
+            selectedRules.delete(ruleId);
+        }
+    });
+}
+
+// 切换单个规则选择
+function toggleRuleSelection(ruleId) {
+    if (selectedRules.has(ruleId)) {
+        selectedRules.delete(ruleId);
+    } else {
+        selectedRules.add(ruleId);
+    }
+    updateSelectAllCheckbox();
+}
+
+// 更新全选复选框状态
+function updateSelectAllCheckbox() {
+    const checkboxes = document.querySelectorAll('.rule-checkbox');
+    const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+    const selectAllCheckbox = document.getElementById('selectAll');
+
+    selectAllCheckbox.checked = checkboxes.length > 0 && checkedCount === checkboxes.length;
+    selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+}
+
+// 关闭模态框
+function closeModal() {
+    const modal = document.getElementById('ruleModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+// 处理规则类型变化
+function handleTypeChange() {
+    const ruleType = document.getElementById('ruleType').value;
+    const replacementField = document.getElementById('replacementField');
+
+    if (ruleType === 'signal_type') {
+        replacementField.classList.add('hidden');
+    } else {
+        replacementField.classList.remove('hidden');
+    }
+}
+
+// 显示测试模态框
+function showTestModal() {
+    document.getElementById('testInput').value = '';
+    document.getElementById('testResult').classList.add('hidden');
+
+    const modal = document.getElementById('testModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+// 关闭测试模态框
+function closeTestModal() {
+    const modal = document.getElementById('testModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+// 测试规则
+async function testRules() {
+    const text = document.getElementById('testInput').value;
+
+    if (!text.trim()) {
+        showMessage('请输入测试文本', 'error');
+        return;
+    }
+
+    try {
+        const response = await fetchAPI('/rules/test', {
+            method: 'POST',
+            body: JSON.stringify({ text })
+        });
+
+        if (response.code === 0) {
+            const result = response.data;
+
+            document.getElementById('testOriginal').textContent = result.original_text;
+            document.getElementById('testOutput').textContent = result.result_text;
+
+            const appliedDiv = document.getElementById('testApplied');
+            if (result.applied_rules.length > 0) {
+                appliedDiv.innerHTML = result.applied_rules.map(rule => `
+                    <div class="p-3 bg-white rounded-lg border ${rule.error ? 'border-red-200' : ''}">
+                        <div class="font-medium text-gray-900">${rule.name}</div>
+                        <div class="text-sm text-gray-600">类型: ${rule.type}</div>
+                        <div class="text-sm text-gray-600">模式: ${escapeHtml(rule.pattern)}</div>
+                        ${rule.replacement !== undefined ? `<div class="text-sm text-gray-600">替换: ${escapeHtml(rule.replacement)}</div>` : ''}
+                        ${rule.error ? `<div class="text-sm text-red-600">${rule.error}</div>` : ''}
+                        ${rule.matches ? `<div class="text-sm text-blue-600">匹配: ${rule.matches.join(', ')}</div>` : ''}
+                    </div>
+                `).join('');
+            } else {
+                appliedDiv.innerHTML = '<p class="text-gray-500">没有匹配的规则</p>';
+            }
+
+            document.getElementById('testResult').classList.remove('hidden');
+        }
+    } catch (error) {
+        console.error('测试失败:', error);
+        showMessage('测试失败', 'error');
+    }
+}
+
+// HTML 转义
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 显示/隐藏加载指示器
+function showLoading(show) {
+    const table = document.getElementById('rulesTable');
+    if (show) {
+        table.innerHTML = `
+            <tr>
+                <td colspan="9" class="px-4 py-8 text-center text-gray-500">
+                    <div class="flex items-center justify-center">
+                        <svg class="animate-spin h-6 w-6 text-blue-600 mr-3" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 8 0v8h0z"></path>
+                        </svg>
+                        加载中...
+                    </div>
+                </td>
+            </tr>
+        `;
+    }
+}
+</script>
+{% endblock %}

@@ -118,6 +118,16 @@ async def recordings_page(request: Request):
     )
 
 
+@app.get("/rules", response_class=HTMLResponse)
+async def rules_page(request: Request):
+    """纠错规则管理页面"""
+    user = require_auth(request)
+    return templates.TemplateResponse(
+        "rules.html",
+        {"request": request, "current_user": user}
+    )
+
+
 @app.get("/health")
 async def health_check():
     """健康检查"""
@@ -140,10 +150,9 @@ app.include_router(recordings.router, prefix="/api", tags=["recordings"])
 from src.api import dashboard
 app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 
-# 其他 API 路由将在后续添加
-# from src.api import rules, push, broadcast, monitor
-# app.include_router(rules.router, prefix="/api", tags=["rules"])
-# ...
+# 规则管理 API
+from src.api import rules
+app.include_router(rules.router, prefix="/api", tags=["rules"])
 
 
 # ====================
