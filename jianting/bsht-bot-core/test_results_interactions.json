@@ -1,0 +1,63 @@
+{
+  "total": 11,
+  "passed": 11,
+  "failed": 0,
+  "errors": [],
+  "actions": [
+    {
+      "name": "仪表板页面交互",
+      "success": true,
+      "error": null
+    },
+    {
+      "name": "录音搜索筛选",
+      "success": true,
+      "error": null
+    },
+    {
+      "name": "规则管理交互",
+      "success": true,
+      "error": null
+    },
+    {
+      "name": "广播任务交互",
+      "success": true,
+      "error": null
+    },
+    {
+      "name": "推送服务交互",
+      "success": true,
+      "error": null
+    },
+    {
+      "name": "音频库交互",
+      "success": true,
+      "error": null
+    },
+    {
+      "name": "监控页面交互",
+      "success": true,
+      "error": null
+    },
+    {
+      "name": "导航菜单交互",
+      "success": true,
+      "error": null
+    },
+    {
+      "name": "表单输入交互",
+      "success": true,
+      "error": null
+    },
+    {
+      "name": "表格交互",
+      "success": true,
+      "error": null
+    },
+    {
+      "name": "响应式交互",
+      "success": true,
+      "error": null
+    }
+  ]
+}
