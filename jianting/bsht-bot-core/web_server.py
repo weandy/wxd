@@ -158,6 +158,16 @@ async def audio_library_page(request: Request):
     )
 
 
+@app.get("/monitor", response_class=HTMLResponse)
+async def monitor_page(request: Request):
+    """机器人监控页面"""
+    user = require_auth(request)
+    return templates.TemplateResponse(
+        "monitor.html",
+        {"request": request, "current_user": user}
+    )
+
+
 @app.get("/health")
 async def health_check():
     """健康检查"""
@@ -195,6 +205,10 @@ app.include_router(broadcast.router, prefix="/api", tags=["broadcast"])
 # 音频库 API
 from src.api import audio_library
 app.include_router(audio_library.router, prefix="/api", tags=["audio_library"])
+
+# 监控 API
+from src.api import monitor
+app.include_router(monitor.router, prefix="/api", tags=["monitor"])
 
 
 # ====================

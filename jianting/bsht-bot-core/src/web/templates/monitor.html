@@ -1,0 +1,541 @@
+{% extends "base.html" %}
+
+{% block title %}机器人监控 - BSHT Bot 管理平台{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-3xl font-bold text-gray-800">机器人监控</h1>
+    <p class="text-gray-600 mt-1">实时监控系统状态和性能指标</p>
+</div>
+
+<!-- 系统概览卡片 -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-medium text-gray-500">24h录音数</p>
+                <p id="recordings24h" class="text-3xl font-bold text-blue-600 mt-2">-</p>
+            </div>
+            <div class="text-3xl">🎙️</div>
+        </div>
+    </div>
+
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-medium text-gray-500">今日录音</p>
+                <p id="todayRecordings" class="text-3xl font-bold text-green-600 mt-2">-</p>
+            </div>
+            <div class="text-3xl">📊</div>
+        </div>
+    </div>
+
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-medium text-gray-500">活跃频道</p>
+                <p id="activeChannels" class="text-3xl font-bold text-purple-600 mt-2">-</p>
+            </div>
+            <div class="text-3xl">📡</div>
+        </div>
+    </div>
+
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm font-medium text-gray-500">系统运行时间</p>
+                <p id="systemUptime" class="text-lg font-bold text-gray-800 mt-2">-</p>
+            </div>
+            <div class="text-3xl">⏱️</div>
+        </div>
+    </div>
+</div>
+
+<!-- 系统资源监控 -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="mb-4">
+            <h3 class="text-lg font-bold text-gray-800">CPU使用率</h3>
+            <div class="flex items-center justify-between mt-2">
+                <div class="flex-1 bg-gray-200 rounded-full h-4">
+                    <div id="cpuBar" class="bg-blue-600 h-4 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+                <span id="cpuPercent" class="ml-3 text-sm font-medium text-gray-700">0%</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="mb-4">
+            <h3 class="text-lg font-bold text-gray-800">内存使用</h3>
+            <div class="flex items-center justify-between mt-2">
+                <div class="flex-1 bg-gray-200 rounded-full h-4">
+                    <div id="memoryBar" class="bg-green-600 h-4 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+                <span id="memoryPercent" class="ml-3 text-sm font-medium text-gray-700">0%</span>
+            </div>
+            <p id="memoryInfo" class="text-xs text-gray-500 mt-1">0 / 0 GB</p>
+        </div>
+    </div>
+
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="mb-4">
+            <h3 class="text-lg font-bold text-gray-800">磁盘使用</h3>
+            <div class="flex items-center justify-between mt-2">
+                <div class="flex-1 bg-gray-200 rounded-full h-4">
+                    <div id="diskBar" class="bg-purple-600 h-4 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+                <span id="diskPercent" class="ml-3 text-sm font-medium text-gray-700">0%</span>
+            </div>
+            <p id="diskInfo" class="text-xs text-gray-500 mt-1">0 / 0 GB</p>
+        </div>
+    </div>
+</div>
+
+<!-- 机器人控制 -->
+<div class="bg-white p-6 rounded-lg shadow mb-6">
+    <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-bold text-gray-800">🤖 机器人控制</h2>
+        <div class="flex items-center space-x-2">
+            <div id="botStatus" class="px-4 py-2 rounded-lg bg-gray-100 text-gray-700">
+                状态: 检查中...
+            </div>
+        </div>
+    </div>
+
+    <div class="flex items-center space-x-4">
+        <button onclick="controlBot('start')" class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+            ▶️ 启动
+        </button>
+        <button onclick="controlBot('stop')" class="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+            ⏹️ 停止
+        </button>
+        <button onclick="controlBot('restart')" class="px-6 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700">
+            🔄 重启
+        </button>
+        <button onclick="refreshStatus()" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+            🔄 刷新状态
+        </button>
+    </div>
+</div>
+
+<!-- 图表区域 -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+    <!-- 7天录音趋势 -->
+    <div class="bg-white p-6 rounded-lg shadow">
+        <h2 class="text-xl font-bold text-gray-800 mb-4">📈 7天录音趋势</h2>
+        <div class="h-64">
+            <canvas id="trendChart"></canvas>
+        </div>
+    </div>
+
+    <!-- 今日每小时录音分布 -->
+    <div class="bg-white p-6 rounded-lg shadow">
+        <h2 class="text-xl font-bold text-gray-800 mb-4">📊 今日每小时录音分布</h2>
+        <div class="h-64">
+            <canvas id="hourlyChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- 活跃频道 -->
+<div class="bg-white p-6 rounded-lg shadow mb-6">
+    <h2 class="text-xl font-bold text-gray-800 mb-4">📡 活跃频道（7天）</h2>
+    <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">频道ID</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">录音数</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">总时长</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">唯一用户数</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">最后活动</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">状态</th>
+                </tr>
+            </thead>
+            <tbody id="channelsTable" class="divide-y divide-gray-200">
+                <tr>
+                    <td colspan="7" class="px-4 py-8 text-center text-gray-500">加载中...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- 日志查看 -->
+<div class="bg-white p-6 rounded-lg shadow">
+    <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-bold text-gray-800">📝 系统日志</h2>
+        <div class="flex items-center space-x-2">
+            <select id="logLevelFilter" onchange="loadLogs()" class="px-4 py-2 border rounded-lg">
+                <option value="">所有级别</option>
+                <option value="INFO">INFO</option>
+                <option value="WARNING">WARNING</option>
+                <option value="ERROR">ERROR</option>
+            </select>
+            <button onclick="loadLogs()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                刷新
+            </button>
+            <button onclick="autoRefreshLogs()" id="autoRefreshBtn" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                自动刷新
+            </button>
+        </div>
+    </div>
+
+    <div id="logsContainer" class="bg-gray-900 text-gray-100 rounded-lg p-4 font-mono text-sm h-96 overflow-y-auto">
+        <div class="text-gray-500">加载中...</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let refreshInterval = null;
+let charts = {};
+
+// 页面加载时初始化
+document.addEventListener('DOMContentLoaded', () => {
+    loadOverview();
+    loadChannels();
+    loadLogs();
+    loadMetrics();
+    refreshStatus();
+});
+
+// 加载概览数据
+async function loadOverview() {
+    try {
+        const response = await fetchAPI('/monitor/overview');
+        if (response.code === 0) {
+            const data = response.data;
+
+            document.getElementById('recordings24h').textContent = data.recordings_24h;
+            document.getElementById('todayRecordings').textContent = data.today_recordings;
+            document.getElementById('activeChannels').textContent = data.active_channels_7d;
+            document.getElementById('systemUptime').textContent = data.uptime;
+
+            // 更新系统资源条
+            updateResourceBar('cpu', data.system.cpu_percent);
+            updateResourceBar('memory', data.system.memory_percent,
+                             `${data.system.memory_used_gb} / ${data.system.memory_total_gb} GB`);
+            updateResourceBar('disk', data.system.disk_percent,
+                             `${data.system.disk_used_gb} / ${data.system.disk_total_gb} GB`);
+        }
+    } catch (error) {
+        console.error('加载概览失败:', error);
+    }
+}
+
+// 更新资源条
+function updateResourceBar(type, percent, info) {
+    const bar = document.getElementById(`${type}Bar`);
+    const percentText = document.getElementById(`${type}Percent`);
+    const infoText = document.getElementById(`${type}Info`);
+
+    bar.style.width = `${percent}%`;
+    percentText.textContent = `${percent}%`;
+
+    // 根据使用率设置颜色
+    bar.className = bar.className.replace(/bg-\w+-600/g, '');
+    if (percent > 80) {
+        bar.classList.add('bg-red-600');
+    } else if (percent > 60) {
+        bar.classList.add('bg-yellow-600');
+    } else {
+        bar.classList.add('bg-blue-600');
+        if (type === 'cpu') bar.classList.add('bg-blue-600');
+        if (type === 'memory') bar.classList.add('bg-green-600');
+        if (type === 'disk') bar.classList.add('bg-purple-600');
+    }
+
+    if (infoText) {
+        infoText.textContent = info;
+    }
+}
+
+// 加载频道状态
+async function loadChannels() {
+    try {
+        const response = await fetchAPI('/monitor/channels');
+        if (response.code === 0) {
+            renderChannels(response.data.channels);
+        }
+    } catch (error) {
+        console.error('加载频道失败:', error);
+    }
+}
+
+// 渲染频道列表
+function renderChannels(channels) {
+    const table = document.getElementById('channelsTable');
+
+    if (!channels || channels.length === 0) {
+        table.innerHTML = `<tr><td colspan="7" class="px-4 py-8 text-center text-gray-500">暂无数据</td></tr>`;
+        return;
+    }
+
+    table.innerHTML = channels.map(ch => `
+        <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3 font-medium text-gray-900">${ch.channel_id}</td>
+            <td class="px-4 py-3 text-gray-600">${ch.recording_count}</td>
+            <td class="px-4 py-3 text-gray-600">${ch.total_duration}分钟</td>
+            <td class="px-4 py-3 text-gray-600">${ch.unique_users}</td>
+            <td class="px-4 py-3 text-gray-600 text-sm">${Utils.formatDateTime(ch.last_activity)}</td>
+            <td class="px-4 py-3">
+                <span class="px-2 py-1 text-xs rounded-full ${
+                    ch.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+                }">
+                    ${ch.status === 'active' ? '活跃' : '离线'}
+                </span>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// 加载日志
+async function loadLogs() {
+    const level = document.getElementById('logLevelFilter').value;
+
+    try {
+        const params = new URLSearchParams({
+            limit: 100,
+            offset: 0
+        });
+
+        if (level) params.append('level', level);
+
+        const response = await fetchAPI(`/monitor/logs?${params.toString()}`);
+        if (response.code === 0) {
+            renderLogs(response.data.logs);
+        }
+    } catch (error) {
+        console.error('加载日志失败:', error);
+    }
+}
+
+// 渲染日志
+function renderLogs(logs) {
+    const container = document.getElementById('logsContainer');
+
+    if (!logs || logs.length === 0) {
+        container.innerHTML = '<div class="text-gray-500">暂无日志</div>';
+        return;
+    }
+
+    container.innerHTML = logs.map(log => {
+        const levelClass = {
+            'INFO': 'text-blue-400',
+            'WARNING': 'text-yellow-400',
+            'ERROR': 'text-red-400'
+        }[log.level] || 'text-gray-400';
+
+        return `<div class="mb-1">
+            <span class="text-gray-500">[${log.timestamp}]</span>
+            <span class="${levelClass}">[${log.level}]</span>
+            <span class="text-cyan-300">${log.module}</span>
+            <span class="text-gray-200">${escapeHtml(log.message)}</span>
+        </div>`;
+    }).join('');
+
+    // 滚动到底部
+    container.scrollTop = container.scrollHeight;
+}
+
+// 加载性能指标和图表
+async function loadMetrics() {
+    try {
+        const response = await fetchAPI('/monitor/metrics');
+        if (response.code === 0) {
+            const data = response.data;
+
+            // 渲染7天趋势图
+            renderTrendChart(data.trend_7d);
+
+            // 渲染每小时统计图
+            renderHourlyChart(data.hourly_stats);
+        }
+    } catch (error) {
+        console.error('加载指标失败:', error);
+    }
+}
+
+// 渲染趋势图
+function renderTrendChart(data) {
+    const ctx = document.getElementById('trendChart').getContext('2d');
+
+    if (charts.trend) {
+        charts.trend.destroy();
+    }
+
+    const labels = data.map(d => d.date.substring(5)); // MM-DD
+    const counts = data.map(d => d.count);
+
+    charts.trend = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: '每日录音数',
+                data: counts,
+                borderColor: 'rgb(59, 130, 246)',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: '录音数'
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                }
+            }
+        }
+    });
+}
+
+// 渲染每小时统计图
+function renderHourlyChart(data) {
+    const ctx = document.getElementById('hourlyChart').getContext('2d');
+
+    if (charts.hourly) {
+        charts.hourly.destroy();
+    }
+
+    const labels = data.map(d => d.hour + ':00');
+    const counts = data.map(d => d.count);
+
+    charts.hourly = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: '录音数',
+                data: counts,
+                backgroundColor: 'rgba(16, 185, 129, 0.7)',
+                borderColor: 'rgb(16, 185, 129)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: '录音数'
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                }
+            }
+        }
+    });
+}
+
+// 控制机器人
+async function controlBot(action) {
+    const actionNames = {
+        'start': '启动',
+        'stop': '停止',
+        'restart': '重启'
+    };
+
+    if (!confirm(`确定要${actionNames[action]}机器人吗？`)) {
+        return;
+    }
+
+    try {
+        showMessage(`${actionNames[action]}命令已发送`, 'success');
+        const response = await fetchAPI('/monitor/control', {
+            method: 'POST',
+            body: JSON.stringify({ action: action })
+        });
+
+        if (response.code === 0) {
+            showMessage(`已发送${actionNames[action]}命令`, 'success');
+            // 等待一下后刷新状态
+            setTimeout(() => refreshStatus(), 2000);
+        }
+    } catch (error) {
+        console.error('控制失败:', error);
+        showMessage('控制失败', 'error');
+    }
+}
+
+// 刷新机器人状态
+async function refreshStatus() {
+    const statusDiv = document.getElementById('botStatus');
+    statusDiv.textContent = '状态: 检查中...';
+    statusDiv.className = 'px-4 py-2 rounded-lg bg-gray-100 text-gray-700';
+
+    try {
+        const response = await fetchAPI('/monitor/control', {
+            method: 'POST',
+            body: JSON.stringify({ action: 'status' })
+        });
+
+        if (response.code === 0) {
+            const status = response.data;
+            if (status.running) {
+                statusDiv.textContent = `状态: 运行中 (PID: ${status.pid})`;
+                statusDiv.className = 'px-4 py-2 rounded-lg bg-green-100 text-green-800';
+            } else {
+                statusDiv.textContent = '状态: 已停止';
+                statusDiv.className = 'px-4 py-2 rounded-lg bg-red-100 text-red-800';
+            }
+        }
+    } catch (error) {
+        console.error('获取状态失败:', error);
+        statusDiv.textContent = '状态: 未知';
+        statusDiv.className = 'px-4 py-2 rounded-lg bg-gray-100 text-gray-700';
+    }
+}
+
+// 自动刷新日志
+function autoRefreshLogs() {
+    const btn = document.getElementById('autoRefreshBtn');
+
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+        refreshInterval = null;
+        btn.textContent = '自动刷新';
+        btn.classList.remove('bg-red-600');
+        btn.classList.add('bg-green-600');
+    } else {
+        refreshInterval = setInterval(loadLogs, 5000);
+        btn.textContent = '停止刷新';
+        btn.classList.remove('bg-green-600');
+        btn.classList.add('bg-red-600');
+    }
+}
+
+// HTML转义
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 定期刷新概览数据
+setInterval(() => {
+    loadOverview();
+    loadChannels();
+}, 30000); // 每30秒刷新
+</script>
+{% endblock %}
