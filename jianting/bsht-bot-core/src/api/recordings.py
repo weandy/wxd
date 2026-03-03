@@ -2,6 +2,7 @@
 录音 API - 录音列表、详情、播放
 """
 from typing import Optional
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -160,6 +161,63 @@ async def get_recordings(
             "total": total,
             "page": page,
             "page_size": page_size
+        }
+    }
+
+
+@router.get("/recordings/stats")
+async def get_recordings_stats(db: Database = Depends(get_db)):
+    """
+    获取录音统计信息
+
+    Returns:
+        统计数据
+    """
+    import sqlite3
+
+    conn = sqlite3.connect(db.db_path)
+    cursor = conn.cursor()
+
+    # 总录音数
+    cursor.execute("SELECT COUNT(*) FROM recordings")
+    total = cursor.fetchone()[0]
+
+    # 今日录音数
+    from datetime import datetime
+    today = datetime.now().strftime("%Y-%m-%d")
+    cursor.execute("SELECT COUNT(*) FROM recordings WHERE DATE(timestamp) = ?", (today,))
+    today_count = cursor.fetchone()[0]
+
+    # 24小时录音数
+    one_day_ago = (datetime.now() - timedelta(days=1)).isoformat()
+    cursor.execute("SELECT COUNT(*) FROM recordings WHERE timestamp >= ?", (one_day_ago,))
+    recent_count = cursor.fetchone()[0]
+
+    # 识别数量
+    cursor.execute("SELECT COUNT(*) FROM recordings WHERE recognized = 1")
+    recognized_count = cursor.fetchone()[0]
+
+    # 总时长（分钟）
+    cursor.execute("SELECT SUM(duration) FROM recordings WHERE duration IS NOT NULL")
+    total_duration = cursor.fetchone()[0] or 0
+    total_duration_minutes = round(total_duration / 60, 2)
+
+    # 平均时长
+    avg_duration = round(total_duration / total, 2) if total > 0 else 0
+
+    conn.close()
+
+    return {
+        "code": 0,
+        "message": "success",
+        "data": {
+            "total": total,
+            "today": today_count,
+            "recent_24h": recent_count,
+            "recognized": recognized_count,
+            "total_duration_minutes": total_duration_minutes,
+            "avg_duration": avg_duration,
+            "recognition_rate": round(recognized_count / total * 100, 2) if total > 0 else 0
         }
     }
 
