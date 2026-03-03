@@ -138,6 +138,26 @@ async def push_page(request: Request):
     )
 
 
+@app.get("/broadcast", response_class=HTMLResponse)
+async def broadcast_page(request: Request):
+    """广播任务管理页面"""
+    user = require_auth(request)
+    return templates.TemplateResponse(
+        "broadcast.html",
+        {"request": request, "current_user": user}
+    )
+
+
+@app.get("/audio-library", response_class=HTMLResponse)
+async def audio_library_page(request: Request):
+    """音频库管理页面"""
+    user = require_auth(request)
+    return templates.TemplateResponse(
+        "audio_library.html",
+        {"request": request, "current_user": user}
+    )
+
+
 @app.get("/health")
 async def health_check():
     """健康检查"""
@@ -167,6 +187,14 @@ app.include_router(rules.router, prefix="/api", tags=["rules"])
 # 推送服务 API
 from src.api import push
 app.include_router(push.router, prefix="/api", tags=["push"])
+
+# 广播任务 API
+from src.api import broadcast
+app.include_router(broadcast.router, prefix="/api", tags=["broadcast"])
+
+# 音频库 API
+from src.api import audio_library
+app.include_router(audio_library.router, prefix="/api", tags=["audio_library"])
 
 
 # ====================

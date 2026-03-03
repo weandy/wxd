@@ -1,0 +1,872 @@
+{% extends "base.html" %}
+
+{% block title %}广播与音频库 - BSHT Bot 管理平台{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-3xl font-bold text-gray-800">广播任务与音频库</h1>
+    <p class="text-gray-600 mt-1">管理广播任务和音频资源</p>
+</div>
+
+<!-- Tab 切换 -->
+<div class="bg-white rounded-lg shadow mb-6">
+    <div class="border-b">
+        <nav class="flex -mb-px">
+            <button onclick="switchTab('broadcast')" id="tab-broadcast" class="tab-button px-6 py-4 text-blue-600 border-b-2 border-blue-600 font-medium">
+                📢 广播任务
+            </button>
+            <button onclick="switchTab('audio')" id="tab-audio" class="tab-button px-6 py-4 text-gray-500 hover:text-gray-700 font-medium">
+                🎵 音频库
+            </button>
+        </nav>
+    </div>
+
+    <!-- 广播任务面板 -->
+    <div id="broadcast-panel" class="p-4">
+        <!-- 统计卡片 -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-blue-50 p-4 rounded-lg">
+                <p class="text-sm font-medium text-blue-600">总任务数</p>
+                <p id="totalTasks" class="text-2xl font-bold text-blue-800">-</p>
+            </div>
+            <div class="bg-green-50 p-4 rounded-lg">
+                <p class="text-sm font-medium text-green-600">已启用</p>
+                <p id="enabledTasks" class="text-2xl font-bold text-green-800">-</p>
+            </div>
+            <div class="bg-gray-50 p-4 rounded-lg">
+                <p class="text-sm font-medium text-gray-600">总执行次数</p>
+                <p id="totalExecutions" class="text-2xl font-bold text-gray-800">-</p>
+            </div>
+            <div class="bg-purple-50 p-4 rounded-lg">
+                <p class="text-sm font-medium text-purple-600">任务类型</p>
+                <p id="taskTypes" class="text-2xl font-bold text-purple-800">-</p>
+            </div>
+        </div>
+
+        <!-- 操作栏 -->
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center space-x-4">
+                <select id="taskTypeFilter" onchange="loadTasks(1)" class="px-4 py-2 border rounded-lg">
+                    <option value="">所有类型</option>
+                    <option value="audio">音频任务</option>
+                    <option value="tts">TTS任务</option>
+                </select>
+                <select id="triggerTypeFilter" onchange="loadTasks(1)" class="px-4 py-2 border rounded-lg">
+                    <option value="">所有触发方式</option>
+                    <option value="manual">手动触发</option>
+                    <option value="schedule">定时触发</option>
+                    <option value="keyword">关键词触发</option>
+                </select>
+                <select id="taskEnabledFilter" onchange="loadTasks(1)" class="px-4 py-2 border rounded-lg">
+                    <option value="">所有状态</option>
+                    <option value="true">已启用</option>
+                    <option value="false">已禁用</option>
+                </select>
+            </div>
+            <button onclick="showAddTaskModal()" class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                添加任务
+            </button>
+        </div>
+
+        <!-- 任务列表 -->
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">任务名称</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">类型</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">触发方式</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">内容</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">执行次数</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">状态</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="tasksTable" class="divide-y divide-gray-200">
+                    <tr>
+                        <td colspan="7" class="px-4 py-8 text-center text-gray-500">加载中...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div id="tasksPagination" class="p-4 border-t"></div>
+    </div>
+
+    <!-- 音频库面板 -->
+    <div id="audio-panel" class="p-4 hidden">
+        <!-- 统计卡片 -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-blue-50 p-4 rounded-lg">
+                <p class="text-sm font-medium text-blue-600">总音频数</p>
+                <p id="totalAudio" class="text-2xl font-bold text-blue-800">-</p>
+            </div>
+            <div class="bg-green-50 p-4 rounded-lg">
+                <p class="text-sm font-medium text-green-600">总时长</p>
+                <p id="totalDuration" class="text-2xl font-bold text-green-800">-</p>
+            </div>
+            <div class="bg-gray-50 p-4 rounded-lg">
+                <p class="text-sm font-medium text-gray-600">总大小</p>
+                <p id="totalSize" class="text-2xl font-bold text-gray-800">-</p>
+            </div>
+            <div class="bg-purple-50 p-4 rounded-lg">
+                <p class="text-sm font-medium text-purple-600">来源类型</p>
+                <p id="audioTypes" class="text-2xl font-bold text-purple-800">-</p>
+            </div>
+        </div>
+
+        <!-- 操作栏 -->
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center space-x-4">
+                <select id="audioSourceFilter" onchange="loadAudioItems(1)" class="px-4 py-2 border rounded-lg">
+                    <option value="">所有来源</option>
+                    <option value="recording">录音</option>
+                    <option value="upload">上传</option>
+                    <option value="tts">TTS生成</option>
+                </select>
+            </div>
+            <button onclick="showAddAudioModal()" class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                添加音频
+            </button>
+        </div>
+
+        <!-- 音频列表 -->
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">文件名</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">来源</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">时长</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">大小</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">描述</th>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="audioTable" class="divide-y divide-gray-200">
+                    <tr>
+                        <td colspan="6" class="px-4 py-8 text-center text-gray-500">加载中...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div id="audioPagination" class="p-4 border-t"></div>
+    </div>
+</div>
+
+<!-- 添加/编辑任务模态框 -->
+<div id="taskModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4">
+        <div class="p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 id="taskModalTitle" class="text-xl font-bold text-gray-800">添加广播任务</h2>
+                <button onclick="closeTaskModal()" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <form id="taskForm" onsubmit="saveTask(event)">
+                <input type="hidden" id="taskId">
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">任务名称 *</label>
+                        <input type="text" id="taskName" required
+                               class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">任务类型 *</label>
+                            <select id="taskType" required onchange="handleTaskTypeChange()"
+                                    class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="audio">音频任务</option>
+                                <option value="tts">TTS任务</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">触发方式 *</label>
+                            <select id="triggerType" required
+                                    class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <option value="manual">手动触发</option>
+                                <option value="schedule">定时触发</option>
+                                <option value="keyword">关键词触发</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="audioFileField">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">音频文件ID</label>
+                        <input type="number" id="audioFileId"
+                               class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               placeholder="音频库中的文件ID">
+                    </div>
+
+                    <div id="ttsTextField" class="hidden">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">TTS文本</label>
+                        <textarea id="ttsText" rows="3"
+                                  class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  placeholder="要转换为语音的文本"></textarea>
+                    </div>
+
+                    <div>
+                        <label class="flex items-center">
+                            <input type="checkbox" id="taskEnabled" checked
+                                   class="w-4 h-4 text-blue-600 rounded">
+                            <span class="ml-2 text-sm text-gray-700">启用此任务</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="flex justify-end space-x-3 mt-6">
+                    <button type="button" onclick="closeTaskModal()"
+                            class="px-6 py-2 border rounded-lg hover:bg-gray-50">
+                        取消
+                    </button>
+                    <button type="submit"
+                            class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                        保存
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 添加音频模态框 -->
+<div id="audioModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4">
+        <div class="p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h2 id="audioModalTitle" class="text-xl font-bold text-gray-800">添加音频</h2>
+                <button onclick="closeAudioModal()" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <form id="audioForm" onsubmit="saveAudio(event)">
+                <input type="hidden" id="audioId">
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">文件名 *</label>
+                        <input type="text" id="audioFilename" required
+                               class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">文件路径 *</label>
+                        <input type="text" id="audioFilepath" required
+                               class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               placeholder="/path/to/audio/file.opus">
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">来源类型 *</label>
+                        <select id="audioSourceType" required
+                                class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="recording">录音</option>
+                            <option value="upload">上传</option>
+                            <option value="tts">TTS生成</option>
+                        </select>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">时长（秒）</label>
+                            <input type="number" id="audioDuration" step="0.1"
+                                   class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">文件大小（字节）</label>
+                            <input type="number" id="audioFileSize"
+                                   class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">描述</label>
+                        <textarea id="audioDescription" rows="2"
+                                  class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  placeholder="音频描述（可选）"></textarea>
+                    </div>
+                </div>
+
+                <div class="flex justify-end space-x-3 mt-6">
+                    <button type="button" onclick="closeAudioModal()"
+                            class="px-6 py-2 border rounded-lg hover:bg-gray-50">
+                        取消
+                    </button>
+                    <button type="submit"
+                            class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                        保存
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentTab = 'broadcast';
+let currentPageTasks = 1;
+let currentPageAudio = 1;
+const pageSize = 10;
+
+// 页面加载时初始化
+document.addEventListener('DOMContentLoaded', () => {
+    loadStats();
+    loadTasks(1);
+});
+
+// 切换Tab
+function switchTab(tab) {
+    currentTab = tab;
+
+    document.querySelectorAll('.tab-button').forEach(btn => {
+        btn.classList.remove('text-blue-600', 'border-b-2', 'border-blue-600');
+        btn.classList.add('text-gray-500');
+    });
+    document.getElementById(`tab-${tab}`).classList.add('text-blue-600', 'border-b-2', 'border-blue-600');
+    document.getElementById(`tab-${tab}`).classList.remove('text-gray-500');
+
+    document.getElementById('broadcast-panel').classList.toggle('hidden', tab !== 'broadcast');
+    document.getElementById('audio-panel').classList.toggle('hidden', tab !== 'audio');
+
+    if (tab === 'broadcast') {
+        loadTasks(1);
+    } else {
+        loadAudioStats();
+        loadAudioItems(1);
+    }
+}
+
+// 加载统计数据
+async function loadStats() {
+    try {
+        const response = await fetchAPI('/broadcast/stats');
+        if (response.code === 0) {
+            const stats = response.data;
+            document.getElementById('totalTasks').textContent = stats.total;
+            document.getElementById('enabledTasks').textContent = stats.enabled;
+            document.getElementById('totalExecutions').textContent = stats.total_executions;
+            document.getElementById('taskTypes').textContent = Object.keys(stats.by_type).length;
+        }
+    } catch (error) {
+        console.error('加载统计失败:', error);
+    }
+}
+
+// 加载广播任务列表
+async function loadTasks(page) {
+    currentPageTasks = page;
+
+    try {
+        const params = new URLSearchParams({
+            page: page,
+            page_size: pageSize
+        });
+
+        const typeFilter = document.getElementById('taskTypeFilter').value;
+        const triggerFilter = document.getElementById('triggerTypeFilter').value;
+        const enabledFilter = document.getElementById('taskEnabledFilter').value;
+
+        if (typeFilter) params.append('task_type', typeFilter);
+        if (triggerFilter) params.append('trigger_type', triggerFilter);
+        if (enabledFilter !== '') params.append('is_enabled', enabledFilter === 'true');
+
+        const response = await fetchAPI(`/broadcast/tasks?${params.toString()}`);
+
+        if (response.code === 0) {
+            const { tasks, total, total_pages } = response.data;
+            renderTasks(tasks);
+            renderTasksPagination(page, total_pages, total);
+        }
+    } catch (error) {
+        console.error('加载任务失败:', error);
+        showMessage('加载失败', 'error');
+    }
+}
+
+// 渲染任务列表
+function renderTasks(tasks) {
+    const table = document.getElementById('tasksTable');
+
+    if (!tasks || tasks.length === 0) {
+        table.innerHTML = `<tr><td colspan="7" class="px-4 py-8 text-center text-gray-500">暂无数据</td></tr>`;
+        return;
+    }
+
+    table.innerHTML = tasks.map(task => `
+        <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3">
+                <div class="font-medium text-gray-900">${task.name}</div>
+            </td>
+            <td class="px-4 py-3">
+                <span class="px-2 py-1 text-xs rounded-full ${
+                    task.task_type === 'audio' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'
+                }">
+                    ${task.task_type === 'audio' ? '音频' : 'TTS'}
+                </span>
+            </td>
+            <td class="px-4 py-3 text-gray-600">${task.trigger_type}</td>
+            <td class="px-4 py-3 text-gray-600 text-sm">
+                ${task.task_type === 'audio' ? `音频ID: ${task.audio_file_id || '-'}` : task.tts_text?.substring(0, 30) + '...'}
+            </td>
+            <td class="px-4 py-3 text-gray-600">${task.execution_count || 0}</td>
+            <td class="px-4 py-3">
+                <button onclick="toggleTaskStatus(${task.id})" class="px-3 py-1 text-xs rounded-full ${
+                    task.is_enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+                }">
+                    ${task.is_enabled ? '已启用' : '已禁用'}
+                </button>
+            </td>
+            <td class="px-4 py-3">
+                <div class="flex items-center space-x-2">
+                    <button onclick="executeTask(${task.id})" class="text-green-600 hover:text-green-800" title="执行">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197 2.132a1 1 0 00.341-1.555L8 8a1 1 0 00-1.555.832L3.196 6.697A1 1 0 002 9.87v4.263a1 1 0 001.555.832l3.197 2.132z"></path>
+                        </svg>
+                    </button>
+                    <button onclick="editTask(${task.id})" class="text-blue-600 hover:text-blue-800" title="编辑">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                        </svg>
+                    </button>
+                    <button onclick="deleteTask(${task.id})" class="text-red-600 hover:text-red-800" title="删除">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// 渲染任务分页
+function renderTasksPagination(page, totalPages, total) {
+    const pagination = document.getElementById('tasksPagination');
+    pagination.innerHTML = renderPaginationHTML(page, totalPages, total, 'loadTasks');
+}
+
+// 加载音频统计
+async function loadAudioStats() {
+    try {
+        const response = await fetchAPI('/audio-library/stats');
+        if (response.code === 0) {
+            const stats = response.data;
+            document.getElementById('totalAudio').textContent = stats.total;
+            document.getElementById('totalDuration').textContent = formatDuration(stats.total_duration);
+            document.getElementById('totalSize').textContent = formatFileSize(stats.total_size);
+            document.getElementById('audioTypes').textContent = Object.keys(stats.by_type).length;
+        }
+    } catch (error) {
+        console.error('加载音频统计失败:', error);
+    }
+}
+
+// 加载音频列表
+async function loadAudioItems(page) {
+    currentPageAudio = page;
+
+    try {
+        const params = new URLSearchParams({
+            page: page,
+            page_size: pageSize
+        });
+
+        const sourceFilter = document.getElementById('audioSourceFilter').value;
+        if (sourceFilter) params.append('source_type', sourceFilter);
+
+        const response = await fetchAPI(`/audio-library?${params.toString()}`);
+
+        if (response.code === 0) {
+            const { items, total, total_pages } = response.data;
+            renderAudioItems(items);
+            renderAudioPagination(page, total_pages, total);
+        }
+    } catch (error) {
+        console.error('加载音频失败:', error);
+        showMessage('加载失败', 'error');
+    }
+}
+
+// 渲染音频列表
+function renderAudioItems(items) {
+    const table = document.getElementById('audioTable');
+
+    if (!items || items.length === 0) {
+        table.innerHTML = `<tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">暂无数据</td></tr>`;
+        return;
+    }
+
+    table.innerHTML = items.map(item => `
+        <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3 font-medium text-gray-900">${escapeHtml(item.filename)}</td>
+            <td class="px-4 py-3">
+                <span class="px-2 py-1 text-xs rounded-full ${
+                    item.source_type === 'recording' ? 'bg-blue-100 text-blue-800' :
+                    item.source_type === 'upload' ? 'bg-green-100 text-green-800' :
+                    'bg-purple-100 text-purple-800'
+                }">
+                    ${item.source_type === 'recording' ? '录音' : item.source_type === 'upload' ? '上传' : 'TTS'}
+                </span>
+            </td>
+            <td class="px-4 py-3 text-gray-600">${formatDuration(item.duration)}</td>
+            <td class="px-4 py-3 text-gray-600">${formatFileSize(item.file_size)}</td>
+            <td class="px-4 py-3 text-gray-600 text-sm">${escapeHtml(item.description || '-')}</td>
+            <td class="px-4 py-3">
+                <div class="flex items-center space-x-2">
+                    <button onclick="editAudio(${item.id})" class="text-blue-600 hover:text-blue-800" title="编辑">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                        </svg>
+                    </button>
+                    <button onclick="deleteAudio(${item.id})" class="text-red-600 hover:text-red-800" title="删除">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// 渲染音频分页
+function renderAudioPagination(page, totalPages, total) {
+    const pagination = document.getElementById('audioPagination');
+    pagination.innerHTML = renderPaginationHTML(page, totalPages, total, 'loadAudioItems');
+}
+
+// 显示添加任务模态框
+function showAddTaskModal() {
+    document.getElementById('taskModalTitle').textContent = '添加广播任务';
+    document.getElementById('taskForm').reset();
+    document.getElementById('taskId').value = '';
+    document.getElementById('taskEnabled').checked = true;
+    handleTaskTypeChange();
+
+    const modal = document.getElementById('taskModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+// 编辑任务
+async function editTask(taskId) {
+    try {
+        const response = await fetchAPI(`/broadcast/tasks/${taskId}`);
+        if (response.code === 0) {
+            const task = response.data;
+
+            document.getElementById('taskModalTitle').textContent = '编辑广播任务';
+            document.getElementById('taskId').value = task.id;
+            document.getElementById('taskName').value = task.name;
+            document.getElementById('taskType').value = task.task_type;
+            document.getElementById('triggerType').value = task.trigger_type;
+            document.getElementById('audioFileId').value = task.audio_file_id || '';
+            document.getElementById('ttsText').value = task.tts_text || '';
+            document.getElementById('taskEnabled').checked = task.is_enabled;
+
+            handleTaskTypeChange();
+
+            const modal = document.getElementById('taskModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+    } catch (error) {
+        console.error('加载任务详情失败:', error);
+        showMessage('加载失败', 'error');
+    }
+}
+
+// 保存任务
+async function saveTask(event) {
+    event.preventDefault();
+
+    const taskId = document.getElementById('taskId').value;
+    const data = {
+        name: document.getElementById('taskName').value,
+        task_type: document.getElementById('taskType').value,
+        trigger_type: document.getElementById('triggerType').value,
+        audio_file_id: document.getElementById('audioFileId').value ? parseInt(document.getElementById('audioFileId').value) : null,
+        tts_text: document.getElementById('ttsText').value,
+        is_enabled: document.getElementById('taskEnabled').checked
+    };
+
+    // 根据任务类型设置content_type
+    data.content_type = data.task_type === 'audio' ? 'audio_file' : 'text';
+
+    try {
+        if (taskId) {
+            await fetchAPI(`/broadcast/tasks/${taskId}`, {
+                method: 'PUT',
+                body: JSON.stringify(data)
+            });
+            showMessage('更新成功', 'success');
+        } else {
+            await fetchAPI('/broadcast/tasks', {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+            showMessage('创建成功', 'success');
+        }
+
+        closeTaskModal();
+        loadTasks(currentPageTasks);
+        loadStats();
+    } catch (error) {
+        console.error('保存失败:', error);
+        showMessage('保存失败', 'error');
+    }
+}
+
+// 删除任务
+async function deleteTask(taskId) {
+    if (!confirm('确定要删除这个任务吗？')) {
+        return;
+    }
+
+    try {
+        await fetchAPI(`/broadcast/tasks/${taskId}`, {
+            method: 'DELETE'
+        });
+        showMessage('删除成功', 'success');
+        loadTasks(currentPageTasks);
+        loadStats();
+    } catch (error) {
+        console.error('删除失败:', error);
+        showMessage('删除失败', 'error');
+    }
+}
+
+// 切换任务状态
+async function toggleTaskStatus(taskId) {
+    try {
+        await fetchAPI('/broadcast/toggle', {
+            method: 'POST',
+            body: JSON.stringify({ task_id: taskId })
+        });
+        loadTasks(currentPageTasks);
+        loadStats();
+    } catch (error) {
+        console.error('切换状态失败:', error);
+        showMessage('切换失败', 'error');
+    }
+}
+
+// 执行任务
+async function executeTask(taskId) {
+    if (!confirm('确定要执行这个任务吗？')) {
+        return;
+    }
+
+    try {
+        await fetchAPI('/broadcast/execute', {
+            method: 'POST',
+            body: JSON.stringify({ task_id: taskId })
+        });
+        showMessage('任务执行成功', 'success');
+        loadTasks(currentPageTasks);
+        loadStats();
+    } catch (error) {
+        console.error('执行任务失败:', error);
+        showMessage('执行失败', 'error');
+    }
+}
+
+// 显示添加音频模态框
+function showAddAudioModal() {
+    document.getElementById('audioModalTitle').textContent = '添加音频';
+    document.getElementById('audioForm').reset();
+    document.getElementById('audioId').value = '';
+
+    const modal = document.getElementById('audioModal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+// 编辑音频
+async function editAudio(audioId) {
+    try {
+        const response = await fetchAPI(`/audio-library/${audioId}`);
+        if (response.code === 0) {
+            const audio = response.data;
+
+            document.getElementById('audioModalTitle').textContent = '编辑音频';
+            document.getElementById('audioId').value = audio.id;
+            document.getElementById('audioFilename').value = audio.filename;
+            document.getElementById('audioFilepath').value = audio.filepath;
+            document.getElementById('audioSourceType').value = audio.source_type;
+            document.getElementById('audioDuration').value = audio.duration || '';
+            document.getElementById('audioFileSize').value = audio.file_size || '';
+            document.getElementById('audioDescription').value = audio.description || '';
+
+            const modal = document.getElementById('audioModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+    } catch (error) {
+        console.error('加载音频详情失败:', error);
+        showMessage('加载失败', 'error');
+    }
+}
+
+// 保存音频
+async function saveAudio(event) {
+    event.preventDefault();
+
+    const audioId = document.getElementById('audioId').value;
+    const data = {
+        filename: document.getElementById('audioFilename').value,
+        filepath: document.getElementById('audioFilepath').value,
+        source_type: document.getElementById('audioSourceType').value,
+        duration: document.getElementById('audioDuration').value ? parseFloat(document.getElementById('audioDuration').value) : null,
+        file_size: document.getElementById('audioFileSize').value ? parseInt(document.getElementById('audioFileSize').value) : null,
+        description: document.getElementById('audioDescription').value
+    };
+
+    try {
+        if (audioId) {
+            await fetchAPI(`/audio-library/${audioId}`, {
+                method: 'PUT',
+                body: JSON.stringify(data)
+            });
+            showMessage('更新成功', 'success');
+        } else {
+            await fetchAPI('/audio-library', {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+            showMessage('创建成功', 'success');
+        }
+
+        closeAudioModal();
+        loadAudioItems(currentPageAudio);
+        loadAudioStats();
+    } catch (error) {
+        console.error('保存失败:', error);
+        showMessage('保存失败', 'error');
+    }
+}
+
+// 删除音频
+async function deleteAudio(audioId) {
+    if (!confirm('确定要删除这个音频吗？')) {
+        return;
+    }
+
+    try {
+        await fetchAPI(`/audio-library/${audioId}`, {
+            method: 'DELETE'
+        });
+        showMessage('删除成功', 'success');
+        loadAudioItems(currentPageAudio);
+        loadAudioStats();
+    } catch (error) {
+        console.error('删除失败:', error);
+        showMessage('删除失败', 'error');
+    }
+}
+
+// 处理任务类型变化
+function handleTaskTypeChange() {
+    const taskType = document.getElementById('taskType').value;
+    const audioField = document.getElementById('audioFileField');
+    const ttsField = document.getElementById('ttsTextField');
+
+    if (taskType === 'audio') {
+        audioField.classList.remove('hidden');
+        ttsField.classList.add('hidden');
+    } else {
+        audioField.classList.add('hidden');
+        ttsField.classList.remove('hidden');
+    }
+}
+
+// 关闭模态框
+function closeTaskModal() {
+    const modal = document.getElementById('taskModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+function closeAudioModal() {
+    const modal = document.getElementById('audioModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+// 格式化时长
+function formatDuration(seconds) {
+    if (!seconds) return '-';
+    if (seconds < 60) {
+        return `${seconds.toFixed(1)}秒`;
+    }
+    const minutes = Math.floor(seconds / 60);
+    const secs = (seconds % 60).toFixed(0);
+    return `${minutes}分${secs}秒`;
+}
+
+// 格式化文件大小
+function formatFileSize(bytes) {
+    if (!bytes) return '-';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let size = bytes;
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+        size /= 1024;
+        unitIndex++;
+    }
+    return `${size.toFixed(1)} ${units[unitIndex]}`;
+}
+
+// 通用分页HTML
+function renderPaginationHTML(page, totalPages, total, loadFunc) {
+    if (totalPages <= 1) {
+        return `<p class="text-center text-gray-500 text-sm">共 ${total} 条记录</p>`;
+    }
+
+    let html = '<div class="flex items-center justify-center space-x-2">';
+
+    html += `<button onclick="${loadFunc}(${page - 1})"
+            class="px-4 py-2 rounded border ${page === 1 ? 'text-gray-400 cursor-not-allowed' : 'hover:bg-gray-100'}"
+            ${page === 1 ? 'disabled' : ''}>上一页</button>`;
+
+    for (let i = 1; i <= totalPages; i++) {
+        if (i === 1 || i === totalPages || (i >= page - 2 && i <= page + 2)) {
+            html += `<button onclick="${loadFunc}(${i})"
+                    class="px-4 py-2 rounded border ${i === page ? 'bg-blue-600 text-white' : 'hover:bg-gray-100'}">${i}</button>`;
+        } else if (i === page - 3 || i === page + 3) {
+            html += '<span class="px-2">...</span>';
+        }
+    }
+
+    html += `<button onclick="${loadFunc}(${page + 1})"
+            class="px-4 py-2 rounded border ${page === totalPages ? 'text-gray-400 cursor-not-allowed' : 'hover:bg-gray-100'}"
+            ${page === totalPages ? 'disabled' : ''}>下一页</button>`;
+
+    html += '</div>';
+    html += `<p class="text-center text-gray-500 text-sm mt-2">共 ${total} 条记录，第 ${page}/${totalPages} 页</p>`;
+
+    return html;
+}
+
+// HTML转义
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+{% endblock %}
