@@ -1300,7 +1300,7 @@ class BotServer:
                 # 检查音频参数
                 sample_rate = wf.getframerate()
                 channels = wf.getnchannels()
-                sampwidth = wf.getsampsize()
+                sampwidth = wf.getsampwidth()  # ✅ 修复: getsampsize -> getsampwidth
 
                 logger.info(f"[播放] 音频参数: {sample_rate}Hz, {channels}ch, {sampwidth*8}bit")
 
