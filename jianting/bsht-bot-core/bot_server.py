@@ -1260,6 +1260,7 @@ class BotServer:
         import tempfile
         import os
         import numpy as np
+        import queue
 
         original_filepath = filepath
         temp_wav = None
@@ -1299,7 +1300,7 @@ class BotServer:
                 # 检查音频参数
                 sample_rate = wf.getframerate()
                 channels = wf.getnchannels()
-                sampwidth = wf.getsampwidth()
+                sampwidth = wf.getsampsize()
 
                 logger.info(f"[播放] 音频参数: {sample_rate}Hz, {channels}ch, {sampwidth*8}bit")
 
@@ -1310,6 +1311,8 @@ class BotServer:
                 logger.info(f"[播放] 每帧: {samples_per_frame} samples, {frame_bytes} bytes")
 
                 total_frames = 0
+                dropped_frames = 0
+
                 while True:
                     data = wf.readframes(samples_per_frame)
                     if not data or len(data) < frame_bytes:
@@ -1321,8 +1324,21 @@ class BotServer:
                     # 转换回 bytes 供 feed_web_pcm 使用
                     pcm_bytes = pcm_array.tobytes()
 
-                    # 使用 Web PCM 喂食方法
-                    self.listener.feed_web_pcm(pcm_bytes)
+                    # ✅ 关键修复：检查队列是否已满，满了就等待
+                    while True:
+                        try:
+                            # 尝试非阻塞地放入队列
+                            self.listener.feed_web_pcm(pcm_bytes)
+                            break  # 成功放入，继续
+                        except:
+                            # 队列满了，等待一小段时间
+                            time.sleep(0.010)  # 等待 10ms
+                            # 检查是否还在发射状态
+                            if not self.listener.is_transmitting:
+                                logger.warning("[播放] 发射已停止，中断播放")
+                                break
+                            # 继续尝试
+                            continue
 
                     total_frames += 1
 
@@ -1331,10 +1347,12 @@ class BotServer:
                         elapsed = total_frames * 0.020
                         logger.info(f"[播放] 播放进度: {elapsed:.1f}s, {total_frames} 帧")
 
-            # 等待最后的帧发送完毕
-            time.sleep(0.2)
+            # 等待队列清空（确保所有帧都被处理）
+            logger.info(f"[播放] 等待队列清空...")
+            time.sleep(0.5)  # 等待 500ms 让后台线程处理完
+
             self.listener.stop_transmit_web()
-            logger.info(f"[CMD] 音频播放完成: {original_filepath}")
+            logger.info(f"[CMD] 音频播放完成: {original_filepath} (总帧数: {total_frames}, 丢弃: {dropped_frames})")
 
         except Exception as e:
             logger.error(f"播放音频失败: {e}")
