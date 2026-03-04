@@ -185,6 +185,7 @@ async def test_push(test_data: PushTest, db: Database = Depends(get_db)):
                 payload = {
                     "token": token,
                     "uid": user['user_identifier'],
+                    "title": "BSHT Bot 测试消息",  # 添加标题
                     "content": test_data.message
                 }
 
