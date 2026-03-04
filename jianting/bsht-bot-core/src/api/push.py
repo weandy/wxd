@@ -193,10 +193,14 @@ async def test_push(test_data: PushTest, db: Database = Depends(get_db)):
                     response = client.post(url, json=payload)
                     result_data = response.json()
 
+                # 判断成功：WxPusher 返回 {"msg":"Successfully sent..."}
+                success = ('msg' in result_data and
+                          'Successfully' in result_data.get('msg', ''))
+
                 results.append({
                     "user": user['name'],
                     "uid": user['user_identifier'],
-                    "success": result_data.get('code') == 0,
+                    "success": success,
                     "response": result_data
                 })
             except Exception as e:
