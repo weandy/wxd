@@ -1292,18 +1292,34 @@ class BotServer:
 
             # ✅ 在启动新发射前，先停止正在进行的发射
             logger.info(f"[播放] 检查当前发射状态...")
-            if self.listener.is_transmitting:
-                logger.warning(f"[播放] 检测到正在发射，先停止...")
+
+            # 检查发射状态（包括 TRANSMITTING 和 STOPPING）
+            current_state = getattr(self.listener, '_tx_state', 0)
+            is_transmitting = current_state in (2, 3, 4)  # 2=TRANSMITTING, 3=STOPPING, 4=BUFFERING
+
+            if is_transmitting:
+                logger.warning(f"[播放] 检测到发射中 (状态={current_state})，先停止...")
                 self.listener.stop_transmit_web()
-                # 等待状态转换完成
+
+                # 等待状态转换完成（检查状态是否回到 IDLE）
                 import time
-                for i in range(50):  # 最多等 5 秒
-                    if not self.listener.is_transmitting:
-                        logger.info(f"[播放] 旧发射已停止 ({i*0.1:.1f}s)")
+                for i in range(100):  # 最多等 10 秒
+                    current_state = getattr(self.listener, '_tx_state', 0)
+                    if current_state == 0:  # IDLE
+                        logger.info(f"[播放] 旧发射已停止 (等待 {i*0.1:.1f}s)")
                         break
+
+                    # 每 1 秒打印一次进度
+                    if i % 10 == 0:
+                        logger.info(f"[播放] 等待发射停止... (状态={current_state}, 已等待 {i*0.1:.1f}s)")
+
                     time.sleep(0.1)
                 else:
-                    logger.error("[播放] 等待旧发射停止超时")
+                    logger.error(f"[播放] 等待旧发射停止超时 (最终状态={current_state})")
+                    # 强制重置状态（紧急情况）
+                    logger.warning("[播放] 强制重置发射状态")
+                    with self.listener._transmit_lock:
+                        self.listener._tx_state = self.listener._TransmitState.IDLE
 
             # 使用 Web 模式发射 (不启动本地麦克风)
             logger.info(f"[播放] 启动 Web 模式发射...")
