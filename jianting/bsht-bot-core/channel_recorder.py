@@ -30,7 +30,8 @@ class ChannelRecorder:
     def __init__(self, base_dir: str = "recordings", channel_id: int = 0,
                  channel_name: str = "", recorder_type: str = "",
                  audio_processor: AudioProcessor = None,
-                 on_recording_complete=None):
+                 on_recording_complete=None,
+                 on_recording_error=None):
         # 统一目录结构: recordings/日期/
         self._base_dir = base_dir
         self._channel_id = channel_id
@@ -44,13 +45,15 @@ class ChannelRecorder:
         else:
             self._recorder_type = "TX" if "/tx" in base_dir.replace("\\", "/") else "RX"
         self._logger = logging.getLogger(f"ChannelRecorder.{self._recorder_type}")
-        
+
         # 音频预处理器 (对讲机优化: 滤波+归一化)
         self._processor = audio_processor
-        
+
         # 录音完成回调: callback(filepath, duration, user_id, user_name)
         self._on_recording_complete = on_recording_complete
-        
+        # 录音回调错误处理: callback(filepath, error_message)
+        self._on_recording_error = on_recording_error
+
         # 当前活跃的录制会话: ssrc → ActiveRecording
         self._active: Dict[int, '_ActiveRecording'] = {}
         
@@ -194,7 +197,13 @@ class ChannelRecorder:
                 try:
                     self._on_recording_complete(**callback_info)
                 except Exception as e:
-                    self._logger.error(f"录音完成回调失败: {e}")
+                    error_msg = f"{type(e).__name__}: {e}"
+                    self._logger.error(f"录音完成回调失败: {error_msg}")
+                    if self._on_recording_error:
+                        try:
+                            self._on_recording_error(callback_info, error_msg)
+                        except Exception as error_exc:
+                            self._logger.error(f"录音回调错误处理失败: {error_exc}")
 
             callback_thread = threading.Thread(
                 target=run_callback,

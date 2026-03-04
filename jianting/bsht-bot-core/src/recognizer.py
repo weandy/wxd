@@ -8,6 +8,7 @@ import logging
 from typing import Optional, Callable
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, Future
+from collections import deque
 import time
 
 # 添加路径
@@ -36,17 +37,18 @@ class RecordingRecognizer:
         self._processor = None
         self._db = None
         self._pusher = None  # 微信推送器
-        self._running = False
+        self._running = True
+        self._shutdown = False
         self._lock = threading.Lock()
-        self._pending_queue = []  # 待识别队列
+        self._pending_queue = deque()  # 待识别队列
         self._processing = False
 
         # 并发识别配置
-        max_workers = 3
-        self._executor = ThreadPoolExecutor(max_workers=max_workers)
+        self._max_concurrent = 3
+        self._executor = ThreadPoolExecutor(max_workers=self._max_concurrent)
         self._active_futures = set()  # 跟踪活跃的识别任务
         self._processing_files = set()  # 跟踪正在处理的文件路径
-        logger.info(f"[并发识别] 线程池初始化: {max_workers} 个工作线程")
+        logger.info(f"[并发识别] 线程池初始化: {self._max_concurrent} 个工作线程")
     
     def set_database(self, db):
         """设置数据库实例"""
@@ -63,6 +65,10 @@ class RecordingRecognizer:
             wait: 是否等待所有任务完成（默认True）
         """
         logger.info("[识别器] 正在关闭...")
+
+        with self._lock:
+            self._running = False
+            self._shutdown = True
 
         # 关闭线程池
         if self._executor:
@@ -96,6 +102,11 @@ class RecordingRecognizer:
         # 标准化路径
         filepath = os.path.normpath(filepath)
 
+        with self._lock:
+            if self._shutdown or not self._running:
+                logger.info(f"[识别器] 已关闭，跳过录音: {os.path.basename(filepath)}")
+                return
+
         if not os.path.exists(filepath):
             logger.warning(f"录音文件不存在: {filepath}")
             return
@@ -120,7 +131,7 @@ class RecordingRecognizer:
         # 检查数据库中是否已识别
         if self._db:
             existing = self._db.get_recording_by_path(filepath)
-            if existing and existing.recognized:
+            if existing and existing.recognition_status == "SUCCESS":
                 logger.info(f"[缓存] 已识别，跳过: {os.path.basename(filepath)}")
                 return
 
@@ -148,32 +159,43 @@ class RecordingRecognizer:
     
     def _process_next(self):
         """处理下一个录音 - 使用线程池并发（支持并行）"""
+        tasks_to_submit = []
         with self._lock:
-            if not self._pending_queue:
+            if not self._pending_queue or self._shutdown or not self._running:
                 return
 
             # 检查当前活跃任务数
             active_count = len(self._active_futures)
-            max_concurrent = 3  # 最大并行任务数
 
             # 如果已达最大并发数，不提交新任务
-            if active_count >= max_concurrent:
+            if active_count >= self._max_concurrent:
                 return
 
             # 批量提交任务（最多提交到 max_concurrent 个）
-            tasks_to_submit = []
             while (self._pending_queue and
-                   active_count + len(tasks_to_submit) < max_concurrent):
-                task = self._pending_queue.pop(0)
+                   active_count + len(tasks_to_submit) < self._max_concurrent):
+                task = self._pending_queue.popleft()
                 tasks_to_submit.append(task)
 
-            # 提交所有任务到线程池
+            # 记录处理中集合
             for task in tasks_to_submit:
-                future = self._executor.submit(self._do_recognize, task)
-                future.add_done_callback(lambda f, t=task: self._on_task_done(f, t))
-                # 此处已经持有 self._lock，不能再次 with self._lock（会死锁）
-                self._active_futures.add(future)
                 self._processing_files.add(task['filepath'])
+
+        if not tasks_to_submit:
+            return
+
+        for task in tasks_to_submit:
+            try:
+                future = self._executor.submit(self._do_recognize, task)
+            except RuntimeError as e:
+                logger.warning(f"[识别器] 任务提交失败: {e}")
+                with self._lock:
+                    self._processing_files.discard(task['filepath'])
+                continue
+
+            future.add_done_callback(lambda f, t=task: self._on_task_done(f, t))
+            with self._lock:
+                self._active_futures.add(future)
     
     def _on_task_done(self, future: Future, task: dict):
         """任务完成回调"""
@@ -250,7 +272,8 @@ class RecordingRecognizer:
                     content_normalized="",
                     signal_type="INVALID",
                     confidence=0,
-                    invalid_reason="duration_too_short"
+                    invalid_reason="duration_too_short",
+                    recognition_status="SKIPPED"
                 )
             logger.info(f"✅ 标记为无效: {os.path.basename(filepath)}")
             return
@@ -258,7 +281,7 @@ class RecordingRecognizer:
         # ===== 数据库缓存检查 =====
         if self._db:
             existing = self._db.get_recording_by_path(filepath)
-            if existing and existing.recognized:
+            if existing and existing.recognition_status == "SUCCESS":
                 logger.info(f"[缓存] 使用已识别结果: {os.path.basename(filepath)}")
                 # 从数据库恢复识别结果并打印
                 from dataclasses import dataclass
@@ -304,7 +327,8 @@ class RecordingRecognizer:
                     start_time=start_time,
                     file_size=file_size,
                     timestamp=timestamp,
-                    recognized=False
+                    recognized=False,
+                    recognition_status="PENDING"
                 )
                 rec_id = self._db.add_recording(rec)
                 logger.info(f"录音记录已添加: ID={rec_id}")
@@ -334,7 +358,9 @@ class RecordingRecognizer:
                     content_normalized=ai_result.content_normalized,
                     signal_type=ai_result.signal_type,
                     confidence=ai_result.confidence,
-                    recognize_duration=recognize_duration
+                    recognize_duration=recognize_duration,
+                    recognition_status="SUCCESS",
+                    recognized_at=datetime.now().isoformat()
                 )
 
             # 微信推送（如果配置了推送器）
@@ -355,13 +381,29 @@ class RecordingRecognizer:
                         asr_text=f"识别失败: {str(e)}",
                         content_normalized="",
                         signal_type="ERROR",
-                        confidence=0
+                        confidence=0,
+                        recognition_status="FAILED",
+                        recognition_error=f"{type(e).__name__}: {e}"
                     )
-                except:
+                except Exception:
                     pass
 
         # 无论成功还是失败，都由callback处理队列
         pass
+
+    def mark_recording_failed(self, filepath: str, error_message: str):
+        """标记录音识别失败（用于回调异常/调度异常）"""
+        if not self._db:
+            return
+        self._db.update_recording_recognition(
+            filepath=filepath,
+            asr_text="",
+            content_normalized="",
+            signal_type="ERROR",
+            confidence=0,
+            recognition_status="FAILED",
+            recognition_error=error_message
+        )
 
     def _send_push(self, ai_result, user_name: str, channel_id: int, duration: float, start_time: str = ""):
         """发送微信推送"""
@@ -533,11 +575,11 @@ class RecordingRecognizer:
                     existing = self._db.get_recording_by_path(filepath)
                     if existing:
                         # 已在数据库中
-                        if existing.recognized:
+                        if existing.recognition_status == "SUCCESS":
                             # 已识别，跳过
                             logger.debug(f"[扫描] 已识别，跳过: {filename}")
                             continue
-                        elif existing.invalid_reason:
+                        elif existing.recognition_status == "SKIPPED" or existing.invalid_reason:
                             # 已标记无效，跳过
                             logger.debug(f"[扫描] 已标记无效({existing.invalid_reason})，跳过: {filename}")
                             continue
@@ -579,7 +621,8 @@ class RecordingRecognizer:
                             file_size=os_module.path.getsize(filepath),
                             timestamp=timestamp,
                             recognized=True,  # 已处理
-                            invalid_reason="duration_too_short"
+                            invalid_reason="duration_too_short",
+                            recognition_status="SKIPPED"
                         )
                         self._db.add_recording(recording)
                         added_count += 1
@@ -598,7 +641,8 @@ class RecordingRecognizer:
                             start_time=timestamp,
                             file_size=os_module.path.getsize(filepath),
                             timestamp=timestamp,
-                            recognized=False
+                            recognized=False,
+                            recognition_status="PENDING"
                         )
                         self._db.add_recording(recording)
                         added_count += 1

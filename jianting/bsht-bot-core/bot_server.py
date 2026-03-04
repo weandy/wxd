@@ -925,11 +925,12 @@ class BotServer:
                 self._reconnect_attempt = reconnect_attempt + 1
 
     @timed_sync("bot_server.setup_recorder")
-    def _setup_recorder(self, recording_callback=None):
+    def _setup_recorder(self, recording_callback=None, recording_error_callback=None):
         """启动频道录制器，连接到混音器
-        
+
         Args:
             recording_callback: 录音完成回调函数
+            recording_error_callback: 录音回调错误处理
         """
         from channel_recorder import ChannelRecorder
 
@@ -939,7 +940,8 @@ class BotServer:
             base_dir="recordings",
             channel_id=self.target_channel_id,
             recorder_type="RX",
-            on_recording_complete=recording_callback
+            on_recording_complete=recording_callback,
+            on_recording_error=recording_error_callback
         )
 
         # TX 录音器 (发射录音)
@@ -947,7 +949,8 @@ class BotServer:
             base_dir="recordings",
             channel_id=self.target_channel_id,
             recorder_type="TX",
-            on_recording_complete=recording_callback
+            on_recording_complete=recording_callback,
+            on_recording_error=recording_error_callback
         )
 
         # 等待混音器初始化 (它在 listen 线程中创建)
@@ -1497,21 +1500,29 @@ class BotServer:
 
 def create_recording_callback(recognizer, channel_id):
     """创建录音完成回调函数"""
-    def callback(filepath: str, duration: float, start_time: str, 
+    def callback(filepath: str, duration: float, start_time: str,
                  user_id: str, user_name: str,
                  channel_id: int = 0, recorder_type: str = "RX",
                  lost_frames: int = 0, loss_rate: float = 0.0):
-        recognizer.on_recording_complete(
-            filepath=filepath,
-            duration=duration,
-            start_time=start_time,
-            user_id=user_id,
-            user_name=user_name,
-            channel_id=channel_id,
-            recorder_type=recorder_type,
-            lost_frames=lost_frames,
-            loss_rate=loss_rate
-        )
+        try:
+            recognizer.on_recording_complete(
+                filepath=filepath,
+                duration=duration,
+                start_time=start_time,
+                user_id=user_id,
+                user_name=user_name,
+                channel_id=channel_id,
+                recorder_type=recorder_type,
+                lost_frames=lost_frames,
+                loss_rate=loss_rate
+            )
+        except Exception as e:
+            error_msg = f"{type(e).__name__}: {e}"
+            logger.error(f"[录音回调] 识别调度失败: {error_msg}")
+            try:
+                recognizer.mark_recording_failed(filepath, error_msg)
+            except Exception as inner_exc:
+                logger.error(f"[录音回调] 失败标记落库失败: {inner_exc}")
 
         # 广播新录音事件到前端 (WebSocket)
         try:
@@ -1525,6 +1536,19 @@ def create_recording_callback(recognizer, channel_id):
             })
         except Exception as e:
             logger.warning(f"[录音回调] broadcast_recording 失败: {e}")
+    return callback
+
+
+def create_recording_error_callback(recognizer):
+    """创建录音回调错误处理函数"""
+    def callback(callback_info: dict, error_message: str):
+        filepath = callback_info.get("filepath", "") if callback_info else ""
+        if not filepath:
+            return
+        try:
+            recognizer.mark_recording_failed(filepath, error_message)
+        except Exception as e:
+            logger.error(f"[录音回调] 失败标记落库失败: {e}")
     return callback
 
 
@@ -1602,15 +1626,16 @@ if __name__ == "__main__":
             
             # 创建回调函数
             recording_callback = create_recording_callback(recognizer, CHANNEL_ID)
-            
+            recording_error_callback = create_recording_error_callback(recognizer)
+
             print("🎯 伪实时识别已启用")
-            
+
             # 修改 BotServer 来使用回调
             original_setup = BotServer._setup_recorder
-            
+
             def new_setup(self, callback=None):
-                return original_setup(self, recording_callback)
-            
+                return original_setup(self, recording_callback, recording_error_callback)
+
             BotServer._setup_recorder = new_setup
             
             print("✅ 识别器已集成到 bot_server")

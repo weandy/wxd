@@ -78,6 +78,11 @@ class Recording:
     # 识别耗时
     recognize_duration: float = 0.0  # 识别耗时(秒)
 
+    # 识别状态详情
+    recognition_status: str = "PENDING"  # PENDING/SUCCESS/FAILED/SKIPPED
+    recognition_error: str = ""  # 失败原因
+    recognized_at: str = ""  # 识别完成时间
+
     # 无效音频标记
     invalid_reason: str = ""  # 无效原因 (empty=有效, "duration_too_short"=时长不足等)
 
@@ -249,6 +254,11 @@ class Database:
                 -- 识别耗时
                 recognize_duration REAL,
 
+                -- 识别状态详情
+                recognition_status TEXT DEFAULT 'PENDING',
+                recognition_error TEXT DEFAULT '',
+                recognized_at TEXT,
+
                 -- 无效音频标记
                 invalid_reason TEXT DEFAULT ''
             )
@@ -264,12 +274,38 @@ class Database:
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_rec_channel ON recordings(channel_id, recorder_type)
         """)
-        
+
         # 数据库迁移：添加invalid_reason字段（如果不存在）
         try:
             cursor.execute("ALTER TABLE recordings ADD COLUMN invalid_reason TEXT DEFAULT ''")
         except sqlite3.OperationalError:
             pass  # 字段可能已存在
+
+        # 数据库迁移：添加recognition_status字段（如果不存在）
+        try:
+            cursor.execute("ALTER TABLE recordings ADD COLUMN recognition_status TEXT DEFAULT 'PENDING'")
+        except sqlite3.OperationalError:
+            pass  # 字段可能已存在
+
+        # 数据库迁移：添加recognition_error字段（如果不存在）
+        try:
+            cursor.execute("ALTER TABLE recordings ADD COLUMN recognition_error TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass  # 字段可能已存在
+
+        # 数据库迁移：添加recognized_at字段（如果不存在）
+        try:
+            cursor.execute("ALTER TABLE recordings ADD COLUMN recognized_at TEXT")
+        except sqlite3.OperationalError:
+            pass  # 字段可能已存在
+
+        # 迁移后创建索引（避免列不存在）
+        try:
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_rec_status ON recordings(recognition_status)
+            """)
+        except sqlite3.OperationalError:
+            pass
 
         # 数据库迁移：添加recorder_type字段（如果不存在）
         try:
@@ -642,6 +678,10 @@ class Database:
                     recorder_type = ?, duration = ?, start_time = ?, file_size = ?,
                     timestamp = ?, recognized = ?, asr_text = ?, content_normalized = ?,
                     signal_type = ?, confidence = ?, rms_db = ?, snr_db = ?,
+                    recognize_duration = COALESCE(?, recognize_duration),
+                    recognition_status = COALESCE(?, recognition_status),
+                    recognition_error = COALESCE(?, recognition_error),
+                    recognized_at = COALESCE(?, recognized_at),
                     invalid_reason = COALESCE(?, invalid_reason)
                 WHERE id = ?
             """, (
@@ -661,6 +701,10 @@ class Database:
                 recording.confidence,
                 recording.rms_db,
                 recording.snr_db,
+                recording.recognize_duration,
+                recording.recognition_status,
+                recording.recognition_error,
+                recording.recognized_at,
                 recording.invalid_reason,
                 record_id
             ))
@@ -671,8 +715,9 @@ class Database:
                     filepath, filename, channel_id, user_id, user_name,
                     recorder_type, duration, start_time, file_size, timestamp,
                     recognized, asr_text, content_normalized, signal_type, confidence,
-                    rms_db, snr_db, invalid_reason
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    rms_db, snr_db, recognize_duration, recognition_status, recognition_error,
+                    recognized_at, invalid_reason
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 recording.filepath,
                 recording.filename,
@@ -691,6 +736,10 @@ class Database:
                 recording.confidence,
                 recording.rms_db,
                 recording.snr_db,
+                recording.recognize_duration,
+                recording.recognition_status,
+                recording.recognition_error,
+                recording.recognized_at,
                 recording.invalid_reason
             ))
 
@@ -709,7 +758,10 @@ class Database:
                                      rms_db: float = 0.0,
                                      snr_db: float = 0.0,
                                      recognize_duration: float = 0.0,
-                                     invalid_reason: str = "") -> bool:
+                                     invalid_reason: str = "",
+                                     recognition_status: Optional[str] = None,
+                                     recognition_error: str = "",
+                                     recognized_at: str = "") -> bool:
         """更新录音的识别结果"""
         import os
         filepath = os.path.normpath(filepath)
@@ -717,12 +769,41 @@ class Database:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
+        if recognition_status is None:
+            recognition_status = "SUCCESS"
+
+        if not recognized_at and recognition_status == "SUCCESS":
+            recognized_at = datetime.now().isoformat()
+
         cursor.execute("""
             UPDATE recordings
-            SET recognized = 1, asr_text = ?, content_normalized = ?, signal_type = ?,
-                confidence = ?, rms_db = ?, snr_db = ?, recognize_duration = ?, invalid_reason = ?
+            SET recognized = 1,
+                recognition_status = ?,
+                recognition_error = ?,
+                recognized_at = ?,
+                asr_text = ?,
+                content_normalized = ?,
+                signal_type = ?,
+                confidence = ?,
+                rms_db = ?,
+                snr_db = ?,
+                recognize_duration = ?,
+                invalid_reason = ?
             WHERE filepath = ?
-        """, (asr_text, content_normalized, signal_type, confidence, rms_db, snr_db, recognize_duration, invalid_reason, filepath))
+        """, (
+            recognition_status,
+            recognition_error,
+            recognized_at,
+            asr_text,
+            content_normalized,
+            signal_type,
+            confidence,
+            rms_db,
+            snr_db,
+            recognize_duration,
+            invalid_reason,
+            filepath
+        ))
 
         affected = cursor.rowcount
         conn.commit()
@@ -734,6 +815,7 @@ class Database:
                        channel_id: Optional[int] = None,
                        recorder_type: Optional[str] = None,
                        recognized: Optional[bool] = None,
+                       recognition_status: Optional[str] = None,
                        user_id: Optional[str] = None,
                        date: Optional[str] = None,
                        min_duration: Optional[float] = None,
@@ -758,6 +840,10 @@ class Database:
         if recognized is not None:
             query += " AND recognized = ?"
             params.append(1 if recognized else 0)
+
+        if recognition_status:
+            query += " AND recognition_status = ?"
+            params.append(recognition_status)
 
         if user_id:
             query += " AND user_id = ?"
@@ -808,7 +894,11 @@ class Database:
                 confidence=row[15] or 0.0,
                 rms_db=row[16] or 0.0,
                 snr_db=row[17] or 0.0,
-                recognize_duration=row[18] or 0.0 if len(row) > 18 else 0.0
+                recognize_duration=row[18] or 0.0 if len(row) > 18 else 0.0,
+                recognition_status=row[19] or "PENDING" if len(row) > 19 else "PENDING",
+                recognition_error=row[20] or "" if len(row) > 20 else "",
+                recognized_at=row[21] or "" if len(row) > 21 else "",
+                invalid_reason=row[22] or "" if len(row) > 22 else ""
             )
             recordings.append(recording)
         
@@ -852,7 +942,11 @@ class Database:
             confidence=row[15] or 0.0,
             rms_db=row[16] or 0.0,
             snr_db=row[17] or 0.0,
-            recognize_duration=row[18] or 0.0 if len(row) > 18 else 0.0
+            recognize_duration=row[18] or 0.0 if len(row) > 18 else 0.0,
+            recognition_status=row[19] or "PENDING" if len(row) > 19 else "PENDING",
+            recognition_error=row[20] or "" if len(row) > 20 else "",
+            recognized_at=row[21] or "" if len(row) > 21 else "",
+            invalid_reason=row[22] or "" if len(row) > 22 else ""
         )
 
     # ===== Web 平台新增方法 =====

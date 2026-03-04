@@ -3,7 +3,7 @@
 """
 from typing import Optional
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, HTTPException, Body
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -456,10 +456,7 @@ async def get_recording_detail(
         row = cursor.fetchone()
 
         if not row:
-            return {
-                "code": 404,
-                "message": "录音不存在"
-            }
+            raise HTTPException(status_code=404, detail="录音不存在")
 
         from src.database import Recording
         recording = Recording(
@@ -618,7 +615,7 @@ async def get_recording_users(db: Database = Depends(get_db)):
 
 @router.post("/recordings/batch-delete")
 async def batch_delete_recordings(
-    request_data: dict,
+    request_data: list[int] = Body(...),
     db: Database = Depends(get_db)
 ):
     """
@@ -633,7 +630,7 @@ async def batch_delete_recordings(
     """
     import sqlite3
 
-    ids = request_data.get("ids", [])
+    ids = request_data
 
     if not ids:
         return {

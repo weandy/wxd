@@ -8,8 +8,11 @@
 3. 信号类型识别
 """
 import os
+import json
+import wave
 import logging
 import time
+import numpy as np
 from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass
 from functools import wraps
@@ -89,6 +92,18 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 @dataclass
+class AudioQuality:
+    """音频质量指标"""
+    rms_db: float
+    peak_db: float
+    noise_db: float
+    snr_db: float
+    dynamic_range_db: float
+    sample_rate: int
+    duration: float
+
+
+@dataclass
 class AIResult:
     """AI识别结果"""
     success: bool
@@ -101,6 +116,85 @@ class AIResult:
     error: str = ""
     sensevoice_content: str = ""  # SenseVoice原始结果
     expert_content: str = ""  # Qwen专家模型原始结果
+
+
+class AudioQualityAnalyzer:
+    """音频质量分析器"""
+
+    @staticmethod
+    def analyze(audio_path: str) -> Optional[AudioQuality]:
+        """分析音频质量"""
+        try:
+            with wave.open(audio_path, 'rb') as wf:
+                params = wf.getparams()
+                frames = wf.readframes(params.nframes)
+
+            # 转换
+            if params.sampwidth == 2:
+                audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+            else:
+                audio = np.frombuffer(frames, dtype=np.float32)
+
+            # 转单声道
+            if params.nchannels > 1:
+                audio = audio.reshape(-1, params.nchannels).mean(axis=1)
+
+            # 计算指标
+            rms = np.sqrt(np.mean(audio ** 2))
+            rms_db = 20 * np.log10(rms + 1e-10)
+
+            # 峰值
+            peak = np.max(np.abs(audio))
+            peak_db = 20 * np.log10(peak + 1e-10)
+
+            # 噪声估计 - 使用整个音频分析，取能量最低的段落
+            # 使用更小的帧来获得更准确的噪声估计
+            frame_size = 480  # 10ms @ 48kHz
+            n_frames = len(audio) // frame_size
+
+            if n_frames < 10:
+                # 音频太短，使用固定估算
+                noise_db = -60
+                snr_db = rms_db - noise_db
+            else:
+                # 计算所有帧的能量
+                energies = []
+                for i in range(n_frames):
+                    frame = audio[i * frame_size:(i + 1) * frame_size]
+                    energies.append(np.mean(frame ** 2))
+
+                energies = np.array(energies)
+
+                # 取能量最低的20%作为噪声估计（更保守的估计）
+                if len(energies) > 0:
+                    noise_floor = np.percentile(energies, 20)
+                    noise_db = 20 * np.log10(noise_floor + 1e-10)
+                    snr_db = rms_db - noise_db
+
+                    # 防止异常值
+                    if snr_db < 0:
+                        snr_db = 0
+                    elif snr_db > 80:  # 异常高可能是计算错误
+                        snr_db = 80
+                else:
+                    noise_db = -60
+                    snr_db = 0
+
+            # 动态范围
+            dynamic_range = peak_db - rms_db
+
+            return AudioQuality(
+                rms_db=rms_db,
+                peak_db=peak_db,
+                noise_db=noise_db,
+                snr_db=snr_db,
+                dynamic_range_db=dynamic_range,
+                sample_rate=params.framerate,
+                duration=len(audio) / params.framerate
+            )
+        except Exception as e:
+            print(f"音频分析错误: {e}")
+            return None
 
 
 class AIClient:
@@ -733,38 +827,59 @@ ASR识别结果: "{asr_text}"
 
 
 class SmartAudioProcessor:
-    """智能音频处理器 - 简化版（移除音频质量分析）"""
+    """智能音频处理器"""
 
     def __init__(self, api_key: str):
         self.api_key = api_key
+        self.analyzer = AudioQualityAnalyzer()
         # AI 客户端
         self.ai = AIClient(api_key)
 
-    def process(self, audio_path: str) -> AIResult:
+    def process(self, audio_path: str) -> Tuple[AIResult, AudioQuality]:
         """
-        智能处理音频（仅ASR识别，不做音频质量分析）
+        智能处理音频
 
         Args:
             audio_path: 音频文件路径
 
         Returns:
-            AIResult
+            (AIResult, AudioQuality)
         """
+        # 分析原始音频质量
+        quality = self.analyzer.analyze(audio_path)
+        if quality is None:
+            return (
+                AIResult(
+                    success=False,
+                    signal_type="UNKNOWN",
+                    content="",
+                    content_normalized="",
+                    user_id="",
+                    signal_quality="",
+                    confidence=0.0,
+                    error="音频分析失败"
+                ),
+                AudioQuality(0, 0, 0, 0, 0, 0, 0)
+            )
+
         # 使用SenseVoice进行语音识别
         logger.info("[识别] 调用 SenseVoice 语音识别...")
 
         sensevoice_success, sensevoice_text = self.ai.call_asr(audio_path)
         if not sensevoice_success:
             logger.warning(f"[识别] SenseVoice失败: {sensevoice_text}")
-            return AIResult(
-                success=False,
-                signal_type="UNKNOWN",
-                content="",
-                content_normalized="",
-                user_id="",
-                signal_quality="",
-                confidence=0.0,
-                error="语音识别失败"
+            return (
+                AIResult(
+                    success=False,
+                    signal_type="UNKNOWN",
+                    content="",
+                    content_normalized="",
+                    user_id="",
+                    signal_quality="",
+                    confidence=0.0,
+                    error="语音识别失败"
+                ),
+                quality
             )
 
         logger.info(f"[识别] SenseVoice结果: {sensevoice_text[:100]}...")
@@ -792,4 +907,4 @@ class SmartAudioProcessor:
             expert_content=""
         )
 
-        return ai_result
+        return ai_result, quality

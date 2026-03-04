@@ -2,7 +2,7 @@
 推送服务管理 API
 """
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from pydantic import BaseModel
 from datetime import datetime
 
@@ -232,7 +232,7 @@ async def test_push(test_data: PushTest, db: Database = Depends(get_db)):
 
 
 @router.post("/push/services/toggle")
-async def toggle_service(service_id: int, db: Database = Depends(get_db)):
+async def toggle_service(service_id: int = Body(...), db: Database = Depends(get_db)):
     """
     切换推送服务启用状态
 
@@ -279,7 +279,7 @@ async def toggle_service(service_id: int, db: Database = Depends(get_db)):
 
 
 @router.post("/push/users/toggle")
-async def toggle_push_user(user_id: int, db: Database = Depends(get_db)):
+async def toggle_push_user(user_id: int = Body(...), db: Database = Depends(get_db)):
     """
     切换推送用户启用状态
 
@@ -486,6 +486,9 @@ async def get_service(service_id: int, db: Database = Depends(get_db)):
     columns = [desc[0] for desc in cursor.description]
     service = dict(zip(columns, row))
     service['enabled'] = bool(service['enabled'])
+
+    cursor.execute("SELECT COUNT(*) FROM notify_users WHERE service_id = ?", (service_id,))
+    service['user_count'] = cursor.fetchone()[0]
 
     conn.close()
 

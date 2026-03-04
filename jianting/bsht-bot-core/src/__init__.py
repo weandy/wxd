@@ -3,7 +3,7 @@
 """
 from .config import get_config, load_env_file, AppConfig, BSHTConfig, APIConfig, DatabaseConfig
 from .database import get_database, AudioRecord, Recording, Database
-from .smart_processor import SmartAudioProcessor, AIClient
+from .smart_processor import SmartAudioProcessor, AIClient, AudioQualityAnalyzer
 
 __all__ = [
     'get_config',
@@ -17,5 +17,6 @@ __all__ = [
     'Recording',
     'Database',
     'SmartAudioProcessor',
-    'AIClient'
+    'AIClient',
+    'AudioQualityAnalyzer'
 ]

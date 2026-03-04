@@ -97,16 +97,17 @@ class JitterBuffer:
 
                 # 检测大幅回退 (负方向差距大) = 可能的序列号回绕
                 if gap > 0x8000 and not self._wrap_detected:
-                    # 确认是真的回绕而不是乱序：检查是否已有后续序列号的包
-                    is_wrap = True
+                    # 仅当接近上限后回到较小序列号时才视为回绕
+                    is_wrap = self._last_seen_seq > 60000 and sequence < 1000
 
                     # 如果缓冲区中有比当前序列号大的包，说明可能是乱序而非回绕
-                    for buffered_seq in self._buffer.keys():
-                        seq_diff = (buffered_seq - self._last_seen_seq) & 0xFFFF
-                        if 0 < seq_diff < 0x8000:
-                            # 有合理的后续包，可能不是回绕
-                            is_wrap = False
-                            break
+                    if is_wrap:
+                        for buffered_seq in self._buffer.keys():
+                            seq_diff = (buffered_seq - self._last_seen_seq) & 0xFFFF
+                            if 0 < seq_diff < 0x8000:
+                                # 有合理的后续包，可能不是回绕
+                                is_wrap = False
+                                break
 
                     if is_wrap:
                         self._wrap_detected = True

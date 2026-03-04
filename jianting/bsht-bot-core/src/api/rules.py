@@ -2,7 +2,7 @@
 纠错规则管理 API
 """
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from pydantic import BaseModel
 from datetime import datetime
 
@@ -235,7 +235,7 @@ async def test_rule(test_data: RuleTest, db: Database = Depends(get_db)):
 
 
 @router.post("/rules/toggle")
-async def toggle_rule(rule_id: int, db: Database = Depends(get_db)):
+async def toggle_rule(rule_id: int = Body(...), db: Database = Depends(get_db)):
     """
     切换规则启用状态
 
