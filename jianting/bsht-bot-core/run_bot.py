@@ -51,8 +51,10 @@ def parse_args():
                         help='启用控制台 PTT 按键说话')
     parser.add_argument('--enable-playback', action='store_true',
                         help='启用音频播放（需要声卡，默认不播放）')
-    parser.add_argument('--scan-history', action='store_true',
-                        help='启动时扫描并补处理历史录音（默认关闭）')
+    parser.add_argument('--scan-history', action='store_true', default=True,
+                        help='启动时扫描并补处理历史录音（默认开启）')
+    parser.add_argument('--no-scan-history', action='store_false', dest='scan_history',
+                        help='禁用启动时历史录音扫描')
     parser.add_argument('--username', type=str, default=None,
                         help='BSHT 用户名（覆盖 .env）')
     parser.add_argument('--password', type=str, default=None,
@@ -116,7 +118,7 @@ def init_recognizer(config, scan_history: bool = False):
         else:
             logger.info("   ✅ 没有需要处理的历史文件")
     else:
-        logger.info("⏭️ 已跳过历史录音扫描（使用 --scan-history 可启用）")
+        logger.info("⏭️ 已跳过历史录音扫描（默认开启，可用 --no-scan-history 关闭）")
 
     # 创建回调函数
     return recognizer, create_recording_callback(recognizer)

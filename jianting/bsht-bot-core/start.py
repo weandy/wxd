@@ -141,7 +141,8 @@ class ServiceManager:
             stderr=subprocess.STDOUT,
             universal_newlines=False,  # 使用字节模式
             bufsize=-1,  # 使用系统默认缓冲
-            env=env
+            env=env,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == 'win32' else 0
         )
 
         # 创建文本包装器，使用 UTF-8 解码
@@ -195,7 +196,8 @@ class ServiceManager:
             stderr=subprocess.STDOUT,
             universal_newlines=False,  # 使用字节模式
             bufsize=-1,  # 使用系统默认缓冲
-            env=env
+            env=env,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == 'win32' else 0
         )
 
         # 创建文本包装器，使用 UTF-8 解码
@@ -239,12 +241,26 @@ class ServiceManager:
         for name, proc in self.processes.items():
             if proc.poll() is None:
                 print(f"  停止 {name.upper()}...")
-                proc.terminate()
                 try:
-                    proc.wait(timeout=5)
+                    # 优雅停止：发送 Ctrl+Break 给进程组，让子进程执行自己的信号处理逻辑
+                    if sys.platform == 'win32':
+                        proc.send_signal(signal.CTRL_BREAK_EVENT)
+                    else:
+                        proc.terminate()
+
+                    proc.wait(timeout=8)
                 except subprocess.TimeoutExpired:
+                    print(f"  {name.upper()} 优雅停止超时，强制终止...")
                     proc.kill()
                     proc.wait()
+                except Exception:
+                    # 兜底
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
 
         self.processes.clear()
         self.output_threads.clear()
