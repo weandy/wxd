@@ -1365,9 +1365,10 @@ class BotServer:
                         except:
                             # 队列满了，等待一小段时间
                             time.sleep(0.010)  # 等待 10ms
-                            # 检查是否还在发射状态
-                            if not self.listener.is_transmitting:
-                                logger.warning("[播放] 发射已停止，中断播放")
+                            # ✅ 改进：检查状态是否完全回到 IDLE
+                            current_state = getattr(self.listener, '_tx_state', 0)
+                            if current_state == 0:  # IDLE
+                                logger.warning("[播放] 发射已回到 IDLE 状态，中断播放")
                                 break
                             # 继续尝试
                             continue

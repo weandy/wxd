@@ -2471,6 +2471,11 @@ class AudioStreamListener:
         while True:
             current_state = getattr(self, '_tx_state', self._TransmitState.IDLE)
 
+            # ✅ 检查 STOPPING 状态，退出编码线程
+            if current_state == self._TransmitState.STOPPING:
+                logger.info("[TX_WEB] 检测到停止信号，编码线程退出")
+                break
+
             # BUFFERING 状态：等待预缓冲完成
             if current_state == self._TransmitState.BUFFERING:
                 qsize = self._tx_web_pcm_queue.qsize() if hasattr(self, '_tx_web_pcm_queue') else 0
