@@ -274,11 +274,26 @@ class ServiceManager:
                 # 检查进程状态
                 for name, proc in list(self.processes.items()):
                     if proc.poll() is not None:
-                        print(f"\n⚠️  [{datetime.now().strftime('%H:%M:%S')}] {name.upper()} 服务异常停止，正在重启...")
+                        # 进程已退出，检查是否是正常重载
+                        time.sleep(1)  # 等待 1 秒，让 uvicorn 完成重载
+
+                        # 检查端口是否还在监听（表示 uvicorn 重载成功）
+                        port_in_use = False
                         if name == 'web':
-                            self.start_web()
-                        elif name == 'bot':
-                            self.start_bot()
+                            import psutil
+                            web_port = 8000
+                            for conn in psutil.net_connections():
+                                if conn.laddr.port == web_port and conn.status == 'LISTEN':
+                                    port_in_use = True
+                                    break
+
+                        # 只有端口不在使用时才重启（表示真正的崩溃）
+                        if not port_in_use:
+                            print(f"\n⚠️  [{datetime.now().strftime('%H:%M:%S')}] {name.upper()} 服务异常停止，正在重启...")
+                            if name == 'web':
+                                self.start_web()
+                            elif name == 'bot':
+                                self.start_bot()
 
                 time.sleep(2)
         except KeyboardInterrupt:
