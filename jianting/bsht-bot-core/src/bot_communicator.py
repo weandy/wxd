@@ -82,7 +82,7 @@ class BotCommunicator:
         self,
         text: str,
         channel_id: int,
-        voice: str = "default"
+        voice: str = "zh-CN-YunxiNeural"
     ) -> Dict[str, Any]:
         """
         发送 TTS 到指定频道

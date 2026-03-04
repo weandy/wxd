@@ -170,6 +170,20 @@ class BotServer:
         self.metrics = get_metrics_collector()
         self.thread_pool = get_thread_pool()
 
+        # 加载 TTS 配置
+        try:
+            from src.config import get_config
+            config = get_config()
+            self.tts_worker_url = config.tts.worker_url
+            self.tts_default_voice = config.tts.default_voice
+            self.tts_default_speed = config.tts.default_speed
+            logger.info(f"✅ TTS配置加载成功: {self.tts_worker_url}")
+        except Exception as e:
+            logger.warning(f"⚠️ TTS配置加载失败: {e}，使用默认配置")
+            self.tts_worker_url = "https://tts.cnleestar.workers.dev"
+            self.tts_default_voice = "zh-CN-YunxiNeural"
+            self.tts_default_speed = 1.0
+
         # ========== 连接健康监控参数 ==========
         self._last_packet_time = 0          # 最后收到数据包时间
         self._unhealthy_count = 0           # 连续不健康计数
@@ -291,51 +305,58 @@ class BotServer:
 
                         logger.info(f"[API] 收到 TTS 广播请求: {text[:50]}...")
 
-                        # 使用 edge-tts 生成语音
-                        async def generate_and_play():
+                        # 使用 TTS Worker API 生成语音（同步方式）
+                        def generate_and_play():
                             try:
-                                import edge_tts
+                                import requests
 
                                 # 创建临时文件
                                 temp_dir = tempfile.gettempdir()
                                 temp_file = os.path.join(temp_dir, f"tts_{int(time.time())}.mp3")
 
-                                logger.info(f"[API] 使用 edge-tts 生成语音: {voice}")
+                                logger.info(f"[API] 使用 TTS Worker API 生成语音: {voice}")
 
-                                # 生成语音
-                                communicate = edge_tts.Communicate(text, voice)
-                                await communicate.save(temp_file)
+                                # 调用 TTS Worker API
+                                tts_url = f"{self.tts_worker_url}/v1/audio/speech"
+                                payload = {
+                                    "input": text,
+                                    "voice": voice,
+                                    "speed": self.tts_default_speed,
+                                    "pitch": "0",
+                                    "style": "general"
+                                }
 
-                                logger.info(f"[API] TTS 语音生成完成: {temp_file}")
+                                response = requests.post(tts_url, json=payload, timeout=30)
 
-                                # 播放音频文件
-                                self._play_audio_file(temp_file)
+                                if response.status_code == 200:
+                                    # 保存音频文件
+                                    with open(temp_file, 'wb') as f:
+                                        f.write(response.content)
 
-                                logger.info(f"[API] TTS 广播完成")
+                                    logger.info(f"[API] TTS 语音生成完成: {temp_file}")
 
-                                # 删除临时文件
-                                try:
-                                    os.remove(temp_file)
-                                except:
-                                    pass
+                                    # 播放音频文件
+                                    self._play_audio_file(temp_file)
 
-                                return True
+                                    logger.info(f"[API] TTS 广播完成")
+
+                                    # 删除临时文件
+                                    try:
+                                        os.remove(temp_file)
+                                    except:
+                                        pass
+
+                                    return True
+                                else:
+                                    logger.error(f"[API] TTS API 返回错误: {response.status_code} - {response.text}")
+                                    return False
+
                             except Exception as e:
                                 logger.error(f"[API] TTS 生成或播放失败: {e}")
                                 return False
 
-                        # 在单独线程中执行异步任务
-                        def run_tts():
-                            loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(loop)
-                            try:
-                                success = loop.run_until_complete(generate_and_play())
-                                if not success:
-                                    logger.error("[API] TTS 广播失败")
-                            finally:
-                                loop.close()
-
-                        threading.Thread(target=run_tts, daemon=True).start()
+                        # 在单独线程中执行（同步任务）
+                        threading.Thread(target=generate_and_play, daemon=True).start()
 
                         return jsonify({
                             'success': True,

@@ -1,0 +1,153 @@
+"""
+配置管理模块 - 使用环境变量管理配置
+支持 .env 文件和系统环境变量
+高内聚低耦合设计
+"""
+import os
+from typing import Optional
+from dataclasses import dataclass
+
+
+def load_env_file(env_path: str = ".env") -> None:
+    """从 .env 文件加载环境变量"""
+    if not os.path.exists(env_path):
+        return
+    
+    with open(env_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            # 跳过注释和空行
+            if not line or line.startswith('#'):
+                continue
+            
+            # 解析 KEY=VALUE 格式 - 先去掉行内注释
+            if '#' in line:
+                line = line.split('#')[0].strip()
+            
+            if '=' in line:
+                key, value = line.split('=', 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                
+                # 只有当环境变量不存在时才设置
+                if key not in os.environ:
+                    os.environ[key] = value
+
+
+@dataclass
+class BSHTConfig:
+    """BSHT账号配置"""
+    username: str
+    password: str
+    channel_id: int
+    channel_passcode: int = 0
+
+
+@dataclass
+class APIConfig:
+    """AI API配置"""
+    siliconflow_key: str = ""
+    base_url: str = "https://api.siliconflow.cn/v1"
+
+
+@dataclass
+class DatabaseConfig:
+    """数据库配置"""
+    path: str = "data/records.db"
+    max_records: int = 10000
+
+
+@dataclass
+class TTSConfig:
+    """TTS语音合成配置"""
+    worker_url: str = "https://tts.cnleestar.workers.dev"
+    default_voice: str = "zh-CN-YunxiNeural"
+    default_speed: float = 1.0
+
+
+@dataclass
+class AppConfig:
+    """应用完整配置"""
+    bsht: BSHTConfig
+    api: APIConfig
+    database: DatabaseConfig
+    tts: TTSConfig
+    
+    @classmethod
+    def from_env(cls, env_path: str = ".env") -> 'AppConfig':
+        """从环境变量加载配置 (.env文件 + 系统环境变量)"""
+        # 先加载 .env 文件
+        load_env_file(env_path)
+        
+        # BSHT配置 - 处理空字符串情况
+        def _get_int(env_key, default):
+            val = os.getenv(env_key, str(default))
+            try:
+                return int(val) if val else default
+            except ValueError:
+                return default
+        
+        bsht = BSHTConfig(
+            username=os.getenv("BSHT_USERNAME", ""),
+            password=os.getenv("BSHT_PASSWORD", ""),
+            channel_id=_get_int("BSHT_CHANNEL_ID", 0),
+            channel_passcode=_get_int("BSHT_CHANNEL_PASSCODE", 0)
+        )
+        
+        # API配置
+        api = APIConfig(
+            siliconflow_key=os.getenv("SILICONFLOW_API_KEY", ""),
+            base_url=os.getenv("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1")
+        )
+        
+        # 数据库配置
+        database = DatabaseConfig(
+            path=os.getenv("DATABASE_PATH", "data/records.db"),
+            max_records=_get_int("DATABASE_MAX_RECORDS", 10000)
+        )
+
+        # TTS配置
+        tts = TTSConfig(
+            worker_url=os.getenv("TTS_WORKER_URL", "https://tts.cnleestar.workers.dev"),
+            default_voice=os.getenv("TTS_DEFAULT_VOICE", "zh-CN-YunxiNeural"),
+            default_speed=float(os.getenv("TTS_DEFAULT_SPEED", "1.0"))
+        )
+
+        return cls(bsht=bsht, api=api, database=database, tts=tts)
+    
+    def validate(self) -> tuple[bool, str]:
+        """验证配置完整性"""
+        if not self.bsht.username or not self.bsht.password:
+            return False, "BSHT账号密码未配置"
+        if self.bsht.channel_id <= 0:
+            return False, "频道ID未配置"
+        return True, "配置完整"
+
+
+# 全局配置实例
+_config: Optional[AppConfig] = None
+_env_path: str = ".env"
+
+
+def get_config(env_path: str = ".env") -> AppConfig:
+    """获取全局配置实例"""
+    global _config, _env_path
+    _env_path = env_path
+    if _config is None:
+        _config = AppConfig.from_env(env_path)
+    return _config
+
+
+def reload_config(env_path: str = None) -> AppConfig:
+    """重新加载配置"""
+    global _config, _env_path
+    if env_path:
+        _env_path = env_path
+    _config = AppConfig.from_env(_env_path)
+    return _config
+
+
+def set_config(config: AppConfig):
+    """设置全局配置"""
+    global _config
+    _config = config
