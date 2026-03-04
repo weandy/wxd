@@ -1,0 +1,13 @@
+{
+    "username": "bswxd",
+    "password": "BsWxd2026",
+    "recordings_dir": "recordings",
+    "enable_audio_processing": true,
+    "channels": [
+        {
+            "id": 62793,
+            "name": "默认频道",
+            "passcode": 0
+        }
+    ]
+}
