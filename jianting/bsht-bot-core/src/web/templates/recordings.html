@@ -438,6 +438,9 @@ async function playRecording(id, buttonElement) {
             audio.play();
             document.getElementById(`inline-play-icon-${id}`).classList.add('hidden');
             document.getElementById(`inline-pause-icon-${id}`).classList.remove('hidden');
+
+            // 初始化拖动功能
+            setupProgressDrag(id);
         }
     } catch (error) {
         console.error('播放失败:', error);
@@ -471,13 +474,55 @@ function toggleInlinePlay(id) {
     }
 }
 
-// 内联播放器进度跳转
-function seekInlineAudio(id, event) {
+// 内联播放器进度跳转（支持拖动）
+let isDragging = {};  // 记录每个播放器的拖动状态
+
+function setupProgressDrag(id) {
+    const progressContainer = document.querySelector(`#player-row-${id} .h-2.bg-gray-200.rounded-full.cursor-pointer`);
+    if (!progressContainer) return;
+
+    progressContainer.addEventListener('mousedown', (e) => {
+        isDragging[id] = true;
+        updateProgressFromEvent(id, e);
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (isDragging[id]) {
+            e.preventDefault();
+            updateProgressFromEvent(id, e);
+        }
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isDragging[id]) {
+            isDragging[id] = false;
+        }
+    });
+}
+
+function updateProgressFromEvent(id, event) {
     const audio = document.getElementById(`inline-audio-${id}`);
-    const container = event.currentTarget;
-    const rect = container.getBoundingClientRect();
-    const percent = (event.clientX - rect.left) / rect.width;
-    audio.currentTime = percent * audio.duration;
+    const progressContainer = document.querySelector(`#player-row-${id} .h-2.bg-gray-200.rounded-full.cursor-pointer`);
+    if (!audio || !progressContainer) return;
+
+    const rect = progressContainer.getBoundingClientRect();
+    const percent = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+
+    // 更新进度条显示
+    document.getElementById(`inline-progress-${id}`).style.width = `${percent * 100}%`;
+
+    // 更新时间显示
+    const currentTime = percent * audio.duration;
+    document.getElementById(`inline-time-${id}`).textContent = formatTime(currentTime);
+
+    // 设置音频时间
+    audio.currentTime = currentTime;
+}
+
+// 内联播放器进度点击（保留点击功能作为备用）
+function seekInlineAudio(id, event) {
+    if (isDragging[id]) return;  // 如果正在拖动，不处理点击
+    updateProgressFromEvent(id, event);
 }
 
 // 格式化时间
