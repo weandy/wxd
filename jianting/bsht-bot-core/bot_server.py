@@ -1273,12 +1273,12 @@ class BotServer:
                 temp_wav_path = temp_wav.name
                 temp_wav.close()
 
-                logger.info(f"[播放] 使用 ffmpeg 转换为 WAV: {temp_wav_path}")
+                logger.info(f"[播放] 使用 ffmpeg 转换为 WAV (48kHz): {temp_wav_path}")
 
-                # 使用 ffmpeg 转换
+                # 使用 ffmpeg 转换为 48kHz (系统原始采样率)
                 subprocess.run([
                     'ffmpeg', '-y', '-i', filepath,
-                    '-ar', '16000',  # 采样率 16kHz
+                    '-ar', '48000',  # 采样率 48kHz (系统原始采样率)
                     '-ac', '1',      # 单声道
                     '-acodec', 'pcm_s16le',  # 16-bit PCM
                     temp_wav_path
@@ -1289,15 +1289,33 @@ class BotServer:
 
             self.listener.start_transmit()
             self._last_packet_time = time.time()  # 更新最后音频时间 (TX)
+
+            # 读取 WAV 文件并播放
             with wave.open(filepath, 'rb') as wf:
-                frame_size = 640  # 320 samples * 2 bytes (16-bit PCM)
+                # 检查音频参数
+                sample_rate = wf.getframerate()
+                channels = wf.getnchannels()
+                sampwidth = wf.getsampwidth()
+
+                logger.info(f"[播放] 音频参数: {sample_rate}Hz, {channels}ch, {sampwidth*8}bit")
+
+                # 计算帧大小 (20ms @ 采样率)
+                samples_per_frame = int(sample_rate * 0.020)  # 20ms
+                frame_size = samples_per_frame * sampwidth  # 字节数
+
+                logger.info(f"[播放] 每帧: {samples_per_frame} samples, {frame_size} bytes")
+
                 while True:
-                    data = wf.readframes(320)
+                    data = wf.readframes(samples_per_frame)
                     if not data or len(data) < frame_size:
                         break
+
+                    # 每次发送前等待 20ms
                     if hasattr(self.listener, '_tx_queue'):
                         self.listener._tx_queue.put(data)
+
                     time.sleep(0.020)  # 20ms per frame
+
             # 等待最后的帧发送完毕
             time.sleep(0.1)
             self.listener.stop_transmit()
@@ -1305,10 +1323,12 @@ class BotServer:
 
         except Exception as e:
             logger.error(f"播放音频失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             if hasattr(self, 'listener') and self.listener:
                 self.listener.stop_transmit()
         finally:
-            # 清理临时文件
+            # 只清理临时文件，不删除原始音频库文件
             if temp_wav and os.path.exists(temp_wav_path):
                 try:
                     os.remove(temp_wav_path)
