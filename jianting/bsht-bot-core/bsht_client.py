@@ -1480,6 +1480,9 @@ class AudioStreamListener:
         self._heartbeat_last_report_time = 0  # 上次报告心跳状态的时间
         self._heartbeat_start_time = 0        # 心跳开始时间
 
+        # ========== Web TX 发射编码线程控制 ==========
+        self._tx_web_encoder_stop_event = threading.Event()  # 通知编码线程退出的事件
+
     @property
     def is_listening(self) -> bool:
         return self._is_listening
@@ -2315,6 +2318,9 @@ class AudioStreamListener:
             # 重置累积缓冲区
             self._tx_web_pcm_accum = b''
 
+            # ✅ 清除停止事件，准备新的发射会话
+            self._tx_web_encoder_stop_event.clear()
+
             # 启动后台编码线程
             self._start_web_tx_encoder_thread()
 
@@ -2468,13 +2474,17 @@ class AudioStreamListener:
         SILENCE_FRAME = bytes(FRAME_BYTES)  # 静音帧
         send_clock = None
 
-        while True:
-            current_state = getattr(self, '_tx_state', self._TransmitState.IDLE)
+        # 清除停止事件，准备运行
+        self._tx_web_encoder_stop_event.clear()
 
-            # ✅ 检查 STOPPING 状态，退出编码线程
-            if current_state == self._TransmitState.STOPPING:
-                logger.info("[TX_WEB] 检测到停止信号，编码线程退出")
+        while True:
+            # ✅ 使用事件而不是状态检查，避免竞态条件
+            if self._tx_web_encoder_stop_event.is_set():
+                logger.info("[TX_WEB] 检测到停止事件，编码线程退出")
                 break
+
+            # 获取当前状态
+            current_state = getattr(self, '_tx_state', self._TransmitState.IDLE)
 
             # BUFFERING 状态：等待预缓冲完成
             if current_state == self._TransmitState.BUFFERING:
@@ -2571,39 +2581,81 @@ class AudioStreamListener:
         """停止 Web 端发射，结束 TX 录音。不销毁编码器（复用）。"""
         logger.info("[TX_WEB] stop_transmit_web 调用")
 
-        with self._transmit_lock:
-            current_state = getattr(self, '_tx_state', self._TransmitState.IDLE)
-            # 允许 BUFFERING 和 TRANSMITTING 状态都能停止
-            if current_state not in (self._TransmitState.TRANSMITTING, self._TransmitState.BUFFERING):
-                return
-            self._tx_state = self._TransmitState.STOPPING
-
-        # 获取编码锁 — 等待正在进行的 feed_web_pcm 完成
-        if hasattr(self, '_tx_web_encode_lock'):
-            self._tx_web_encode_lock.acquire()
-            self._tx_web_encode_lock.release()
-
-        # 发送 TX_AUDIO_STOP 包
         try:
-            self.send_audio(b'', marker=False)
-            logger.info("[TX_WEB] 已发送 TX_AUDIO_STOP")
+            with self._transmit_lock:
+                current_state = getattr(self, '_tx_state', self._TransmitState.IDLE)
+                # ✅ 修复：允许所有非 IDLE 状态都能停止（包括 STOPPING）
+                # 这样可以避免在 STOPPING 状态时重复调用导致的清理逻辑被跳过
+                if current_state == self._TransmitState.IDLE:
+                    logger.info("[TX_WEB] 状态已是 IDLE，无需停止")
+                    return
+                # 如果不是 STOPPING 状态，设置为 STOPPING
+                if current_state != self._TransmitState.STOPPING:
+                    self._tx_state = self._TransmitState.STOPPING
+                logger.info(f"[TX_WEB] 状态设置为 STOPPING (之前状态: {current_state})")
+
+            # ✅ 关键修复：使用事件通知编码线程退出
+            self._tx_web_encoder_stop_event.set()
+            logger.info("[TX_WEB] 停止事件已设置")
+
+            # 获取编码锁 — 等待正在进行的 feed_web_pcm 完成
+            if hasattr(self, '_tx_web_encode_lock'):
+                self._tx_web_encode_lock.acquire()
+                self._tx_web_encode_lock.release()
+                logger.info("[TX_WEB] 编码锁已获取并释放")
+
+            # 发送 TX_AUDIO_STOP 包
+            try:
+                self.send_audio(b'', marker=False)
+                logger.info("[TX_WEB] 已发送 TX_AUDIO_STOP")
+            except Exception as e:
+                logger.warning(f"[TX_WEB] 发送停止包失败: {e}")
+
+            # ✅ 等待编码线程真正退出
+            if hasattr(self, '_tx_web_encoder_thread') and self._tx_web_encoder_thread and self._tx_web_encoder_thread.is_alive():
+                logger.info("[TX_WEB] 等待编码线程退出...")
+                self._tx_web_encoder_thread.join(timeout=5)
+                if self._tx_web_encoder_thread.is_alive():
+                    logger.warning("[TX_WEB] 编码线程退出超时（5秒）")
+                else:
+                    logger.info("[TX_WEB] 编码线程已退出")
+            else:
+                logger.info("[TX_WEB] 编码线程未运行或已退出")
+
+            # 结束 TX 录音
+            logger.info("[TX_WEB] 开始结束 TX 录音...")
+            duration = self._tx_frame_count * 0.02
+            logger.info(f"[TX_WEB] 录音参数: started={self._tx_web_recording_started}, recorder={self._tx_web_recorder is not None}")
+            if self._tx_web_recording_started and self._tx_web_recorder:
+                try:
+                    logger.info("[TX_WEB] 调用 on_speaker_end...")
+                    # ✅ 直接调用，on_speaker_end 使用异步线程，不会阻塞
+                    self._tx_web_recorder.on_speaker_end(
+                        self._tx_web_uid, duration, self._tx_frame_count, 0, 0
+                    )
+                    logger.info(f"[TX_WEB] TX 录音结束完成 ({duration:.2f}s)")
+                except Exception as e:
+                    logger.warning(f"[TX_WEB] TX 录音结束失败: {e}")
+            else:
+                logger.info("[TX_WEB] 跳过 TX 录音结束（未录音或录音器不可用）")
+
+            # 不销毁编码器 — 跨 PTT 会话复用
+            logger.info("[TX_WEB] 准备重置状态...")
+            with self._transmit_lock:
+                self._tx_state = self._TransmitState.IDLE
+                self._tx_web_mode = False
+                logger.info("[TX_WEB] 状态已重置为 IDLE")
+
+            logger.info(f"[TX_WEB] 🔴 停止发射 (Web): {self._tx_frame_count} 帧, {duration:.2f}s")
+
         except Exception as e:
-            logger.warning(f"[TX_WEB] 发送停止包失败: {e}")
-
-        # 结束 TX 录音
-        duration = self._tx_frame_count * 0.02
-        if self._tx_web_recording_started and self._tx_web_recorder:
-            self._tx_web_recorder.on_speaker_end(
-                self._tx_web_uid, duration, self._tx_frame_count, 0, 0
-            )
-            logger.info(f"[TX_WEB] TX 录音已保存 ({duration:.2f}s)")
-
-        # 不销毁编码器 — 跨 PTT 会话复用
-        with self._transmit_lock:
-            self._tx_state = self._TransmitState.IDLE
-            self._tx_web_mode = False
-
-        logger.info(f"[TX_WEB] 🔴 停止发射 (Web): {self._tx_frame_count} 帧, {duration:.2f}s")
+            logger.error(f"[TX_WEB] stop_transmit_web 异常: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # 强制重置状态
+            with self._transmit_lock:
+                self._tx_state = self._TransmitState.IDLE
+                self._tx_web_mode = False
 
     def _transmit_loop(self):
         """

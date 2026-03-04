@@ -35,7 +35,8 @@ class ChannelRecorder:
         self._base_dir = base_dir
         self._channel_id = channel_id
         self._channel_name = self._sanitize_name(channel_name) if channel_name else f"ch{channel_id}"
-        self._lock = threading.Lock()
+        # ✅ 使用 RLock (可重入锁) 避免死锁
+        self._lock = threading.RLock()
 
         # 录音器类型
         if recorder_type:
@@ -170,11 +171,11 @@ class ChannelRecorder:
                 except Exception as e:
                     self._logger.error(f"写入PCM数据失败 ({rec.filename}): {e}")
     
-    def on_speaker_end(self, ssrc: int, duration: float = 0, 
+    def on_speaker_end(self, ssrc: int, duration: float = 0,
                        frames: int = 0, lost: int = 0, loss_pct: float = 0):
         """
         说话者停止说话 → 关闭 WAV 文件, 更新日志
-        
+
         Args:
             ssrc: 用户 SSRC
             duration: 通话时长(秒)
@@ -182,18 +183,35 @@ class ChannelRecorder:
             lost: 丢包帧数
             loss_pct: 丢包率(%)
         """
+        # ✅ 先关闭录制，收集回调信息
+        callback_info = None
         with self._lock:
-            self._close_recording(ssrc, duration, frames, lost, loss_pct)
-    
+            callback_info = self._close_recording(ssrc, duration, frames, lost, loss_pct)
+
+        # ✅ 使用守护线程异步调用回调，避免阻塞
+        if callback_info and self._on_recording_complete:
+            def run_callback():
+                try:
+                    self._on_recording_complete(**callback_info)
+                except Exception as e:
+                    self._logger.error(f"录音完成回调失败: {e}")
+
+            callback_thread = threading.Thread(
+                target=run_callback,
+                name=f"RecordingCallback-{callback_info.get('user_id', 'unknown')}",
+                daemon=True  # 守护线程，不会阻止程序退出
+            )
+            callback_thread.start()
+
     def _close_recording(self, ssrc: int, duration: float = 0,
                           frames: int = 0, lost: int = 0, loss_pct: float = 0):
         """关闭录制 (内部使用, 须持锁)"""
         rec = self._active.pop(ssrc, None)
         if not rec:
-            return
-        
+            return None
+
         end_time = datetime.now()
-        
+
         # 关闭 WAV 文件
         try:
             if rec.wav_file:
@@ -218,32 +236,32 @@ class ChannelRecorder:
                 os.remove(rec.filepath)
             except Exception as e:
                 logger.warning(f"删除空文件失败 ({rec.filepath}): {e}")
-            return
+            return None
 
         file_size_kb = file_size / 1024
         self._logger.info(f"[{self._recorder_type}] 录制完成: {rec.filename} ({duration:.1f}s, {file_size_kb:.0f}KB)")
 
         # 写入 conversation_log
         self._append_log(rec, end_time, duration, frames, lost, loss_pct)
-        
-        # 触发录音完成回调 (用于伪实时识别)
+
+        # ✅ 收集回调信息，不在锁内调用回调
+        callback_info = None
         if self._on_recording_complete:
-            try:
-                # 格式化开始时间，精确到0.1秒
-                start_time_str = rec.start_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-5]
-                self._on_recording_complete(
-                    filepath=rec.filepath,
-                    duration=duration,
-                    start_time=start_time_str,
-                    user_id=rec.user_id,
-                    user_name=rec.name,
-                    channel_id=self._channel_id,
-                    recorder_type=self._recorder_type,
-                    lost_frames=lost,
-                    loss_rate=loss_pct
-                )
-            except Exception as e:
-                self._logger.error(f"录音完成回调失败: {e}")
+            # 格式化开始时间，精确到0.1秒
+            start_time_str = rec.start_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-5]
+            callback_info = {
+                'filepath': rec.filepath,
+                'duration': duration,
+                'start_time': start_time_str,
+                'user_id': rec.user_id,
+                'user_name': rec.name,
+                'channel_id': self._channel_id,
+                'recorder_type': self._recorder_type,
+                'lost_frames': lost,
+                'loss_rate': loss_pct
+            }
+
+        return callback_info
     
     def _append_log(self, rec: '_ActiveRecording', end_time: datetime,
                     duration: float, frames: int, lost: int, loss_pct: float):

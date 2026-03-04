@@ -7,6 +7,12 @@ import threading
 from bsht_client import BSHTClient, TokenInfo, StatusCode, ChannelConnectionParams, AudioStreamListener
 from pathlib import Path
 
+# 修复 Windows 控制台编码问题
+if sys.platform == 'win32':
+    import codecs
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.detach())
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.detach())
+
 
 def get_reconnect_delay(attempt: int, base: int = 2, max_delay: int = 60, min_delay: int = 2) -> int:
     """计算指数退避延迟时间
@@ -1267,28 +1273,37 @@ class BotServer:
         temp_wav = None
 
         try:
-            # 检查文件格式，如果不是 WAV 则转换
-            if not filepath.lower().endswith('.wav'):
-                logger.info(f"[播放] 检测到非 WAV 格式: {filepath}")
+            # 检查文件格式和采样率
+            needs_conversion = False
+            target_sample_rate = 48000  # BSHT 系统使用 48kHz
+
+            # 使用 wave 模块检查音频参数
+            with wave.open(filepath, 'rb') as check_wf:
+                original_sample_rate = check_wf.getframerate()
+                if original_sample_rate != target_sample_rate:
+                    logger.info(f"[播放] 检测到采样率不匹配: {original_sample_rate}Hz，需要转换为 {target_sample_rate}Hz")
+                    needs_conversion = True
+
+            # 如果不是 WAV 格式或采样率不匹配，使用 ffmpeg 转换
+            if needs_conversion or not filepath.lower().endswith('.wav'):
+                logger.info(f"[播放] 需要 ffmpeg 转换: {filepath}")
 
                 # 创建临时文件
                 temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
                 temp_wav_path = temp_wav.name
                 temp_wav.close()
 
-                logger.info(f"[播放] 使用 ffmpeg 转换为 WAV (48kHz): {temp_wav_path}")
-
-                # 使用 ffmpeg 转换为 48kHz (系统原始采样率)
+                # 使用 ffmpeg 转换为 48kHz
                 subprocess.run([
                     'ffmpeg', '-y', '-i', filepath,
-                    '-ar', '48000',  # 采样率 48kHz (系统原始采样率)
+                    '-ar', str(target_sample_rate),  # 采样率 48kHz
                     '-ac', '1',      # 单声道
                     '-acodec', 'pcm_s16le',  # 16-bit PCM
                     temp_wav_path
                 ], check=True, capture_output=True)
 
                 filepath = temp_wav_path
-                logger.info(f"[播放] 转换完成")
+                logger.info(f"[播放] 转换完成: {original_sample_rate}Hz -> {target_sample_rate}Hz")
 
             # ✅ 在启动新发射前，先停止正在进行的发射
             logger.info(f"[播放] 检查当前发射状态...")
@@ -1299,27 +1314,9 @@ class BotServer:
 
             if is_transmitting:
                 logger.warning(f"[播放] 检测到发射中 (状态={current_state})，先停止...")
+                # ✅ stop_transmit_web() 会等待编码线程退出并正确处理状态转换
                 self.listener.stop_transmit_web()
-
-                # 等待状态转换完成（检查状态是否回到 IDLE）
-                import time
-                for i in range(100):  # 最多等 10 秒
-                    current_state = getattr(self.listener, '_tx_state', 0)
-                    if current_state == 0:  # IDLE
-                        logger.info(f"[播放] 旧发射已停止 (等待 {i*0.1:.1f}s)")
-                        break
-
-                    # 每 1 秒打印一次进度
-                    if i % 10 == 0:
-                        logger.info(f"[播放] 等待发射停止... (状态={current_state}, 已等待 {i*0.1:.1f}s)")
-
-                    time.sleep(0.1)
-                else:
-                    logger.error(f"[播放] 等待旧发射停止超时 (最终状态={current_state})")
-                    # 强制重置状态（紧急情况）
-                    logger.warning("[播放] 强制重置发射状态")
-                    with self.listener._transmit_lock:
-                        self.listener._tx_state = self.listener._TransmitState.IDLE
+                logger.info(f"[播放] 旧发射已停止")
 
             # 使用 Web 模式发射 (不启动本地麦克风)
             logger.info(f"[播放] 启动 Web 模式发射...")
