@@ -1289,6 +1289,21 @@ class BotServer:
                 filepath = temp_wav_path
                 logger.info(f"[播放] 转换完成")
 
+            # ✅ 在启动新发射前，先停止正在进行的发射
+            logger.info(f"[播放] 检查当前发射状态...")
+            if self.listener.is_transmitting:
+                logger.warning(f"[播放] 检测到正在发射，先停止...")
+                self.listener.stop_transmit_web()
+                # 等待状态转换完成
+                import time
+                for i in range(50):  # 最多等 5 秒
+                    if not self.listener.is_transmitting:
+                        logger.info(f"[播放] 旧发射已停止 ({i*0.1:.1f}s)")
+                        break
+                    time.sleep(0.1)
+                else:
+                    logger.error("[播放] 等待旧发射停止超时")
+
             # 使用 Web 模式发射 (不启动本地麦克风)
             logger.info(f"[播放] 启动 Web 模式发射...")
             if not self.listener.start_transmit_web():
