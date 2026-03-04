@@ -1803,13 +1803,6 @@ async function saveRecording() {
 
     reader.readAsDataURL(audioBlob);
 }
-            console.error('保存失败:', error);
-            showMessage('保存失败', 'error');
-        }
-    };
-
-    reader.readAsDataURL(audioBlob);
-}
 
 // 音频可视化
 let audioContext = null;
