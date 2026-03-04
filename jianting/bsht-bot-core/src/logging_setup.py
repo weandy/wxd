@@ -178,21 +178,8 @@ def setup_logger(name: str = "BSHTBox",
             "%(asctime)s [%(levelname)s] %(message)s",
             DATE_FORMAT
         ))
-        # 强制立即刷新每条日志
-        console_handler.flush = lambda: sys.stdout.flush()
         logger.addHandler(console_handler)
 
-        # 确保根日志器也立即刷新
-        for handler in logger.handlers:
-            if isinstance(handler, logging.StreamHandler):
-                old_emit = handler.emit
-
-                def new_emit(record):
-                    old_emit(record)
-                    handler.flush()
-
-                handler.emit = new_emit
-    
     return logger
 
 

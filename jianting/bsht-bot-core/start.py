@@ -75,8 +75,8 @@ class ServiceManager:
             cwd=self.root_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            universal_newlines=False,  # 改为 False，使用字节模式
-            bufsize=1,  # 行缓冲
+            universal_newlines=False,  # 使用字节模式
+            bufsize=-1,  # 使用系统默认缓冲
             env=env
         )
 
@@ -126,8 +126,8 @@ class ServiceManager:
             cwd=self.root_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            universal_newlines=False,  # 改为 False，使用字节模式
-            bufsize=1,  # 行缓冲
+            universal_newlines=False,  # 使用字节模式
+            bufsize=-1,  # 使用系统默认缓冲
             env=env
         )
 
