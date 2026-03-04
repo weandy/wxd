@@ -125,9 +125,17 @@
                     <option value="tts">TTS生成</option>
                 </select>
             </div>
-            <button onclick="showAddAudioModal()" class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-                添加音频
-            </button>
+            <div class="flex items-center space-x-3">
+                <button onclick="showUploadModal()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    📤 上传音频
+                </button>
+                <button onclick="showRecordModal()" class="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
+                    🎙️ 在线录音
+                </button>
+                <button onclick="showAddAudioModal()" class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                    添加音频
+                </button>
+            </div>
         </div>
 
         <!-- 音频列表 -->
@@ -200,10 +208,32 @@
                     </div>
 
                     <div id="audioFileField">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">音频文件ID</label>
-                        <input type="number" id="audioFileId"
-                               class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                               placeholder="音频库中的文件ID">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">选择音频文件</label>
+                        <div class="space-y-3">
+                            <div class="flex space-x-2">
+                                <select id="audioFileSelect"
+                                        class="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        onchange="onAudioFileSelected()">
+                                    <option value="">-- 从音频库选择 --</option>
+                                </select>
+                                <button type="button" onclick="refreshAudioLibrary()"
+                                        class="px-3 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200">
+                                    刷新
+                                </button>
+                            </div>
+                            <input type="hidden" id="audioFileId">
+
+                            <!-- 音频预览 -->
+                            <div id="audioPreviewContainer" class="hidden">
+                                <div class="bg-gray-50 rounded-lg p-3">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <span id="audioPreviewName" class="text-sm font-medium text-gray-700"></span>
+                                        <button type="button" onclick="clearAudioSelection()" class="text-red-500 hover:text-red-700 text-sm">清除</button>
+                                    </div>
+                                    <audio id="audioPreviewPlayer" controls class="w-full"></audio>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <div id="ttsTextField" class="hidden">
@@ -511,7 +541,7 @@ function renderAudioItems(items) {
     }
 
     table.innerHTML = items.map(item => `
-        <tr class="hover:bg-gray-50">
+        <tr class="hover:bg-gray-50" data-audio-id="${item.id}">
             <td class="px-4 py-3 font-medium text-gray-900">${escapeHtml(item.filename)}</td>
             <td class="px-4 py-3">
                 <span class="px-2 py-1 text-xs rounded-full ${
@@ -527,6 +557,11 @@ function renderAudioItems(items) {
             <td class="px-4 py-3 text-gray-600 text-sm">${escapeHtml(item.description || '-')}</td>
             <td class="px-4 py-3">
                 <div class="flex items-center space-x-2">
+                    <button onclick="playAudioItem(${item.id}, this)" class="text-green-600 hover:text-green-800" title="播放">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197 2.132a1 1 0 00.341-1.555L8 8a1 1 0 00-1.555.832L3.196 6.697A1 1 0 002 9.87v4.263a1 1 0 001.555.832l3.197 2.132z"></path>
+                        </svg>
+                    </button>
                     <button onclick="editAudio(${item.id})" class="text-blue-600 hover:text-blue-800" title="编辑">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
@@ -540,7 +575,120 @@ function renderAudioItems(items) {
                 </div>
             </td>
         </tr>
+        <tr id="audio-player-row-${item.id}" class="hidden">
+            <td colspan="6" class="px-4 py-3 bg-gray-50 border-b">
+                <div class="flex items-center space-x-4">
+                    <button onclick="toggleAudioPlay(${item.id})" id="audio-play-btn-${item.id}">
+                        <svg class="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M8 5v14l11-7z"/>
+                        </svg>
+                    </button>
+                    <span id="audio-time-${item.id}" class="text-sm text-gray-600 w-16">00:00</span>
+                    <div class="flex-1 h-2 bg-gray-200 rounded-full cursor-pointer relative"
+                         onclick="seekAudio(${item.id}, event)" id="audio-progress-container-${item.id}">
+                        <div id="audio-progress-${item.id}" class="h-2 bg-blue-600 rounded-full transition-all" style="width: 0%"></div>
+                    </div>
+                    <span id="audio-duration-${item.id}" class="text-sm text-gray-600 w-16">00:00</span>
+                    <button onclick="closeAudioPlayer(${item.id})" class="text-sm text-gray-500 hover:text-gray-700">关闭</button>
+                </div>
+                <audio id="audio-element-${item.id}" class="hidden"></audio>
+            </td>
+        </tr>
     `).join('');
+}
+
+// 播放音频库文件
+async function playAudioItem(itemId, button) {
+    try {
+        const response = await fetchAPI(`/audio-library/${itemId}`);
+        if (response.code === 0) {
+            const item = response.data;
+            const playerRow = document.getElementById(`audio-player-row-${itemId}`);
+            const audioElement = document.getElementById(`audio-element-${itemId}`);
+
+            // 构建音频 URL
+            let audioUrl = item.filepath;
+            if (audioUrl.startsWith('/')) {
+                audioUrl = audioUrl;
+            } else {
+                // 转换为相对路径
+                audioUrl = '/audio_uploads/' + item.filename;
+            }
+
+            audioElement.src = audioUrl;
+
+            // 显示播放器
+            playerRow.classList.remove('hidden');
+
+            // 自动播放
+            toggleAudioPlay(itemId);
+        }
+    } catch (error) {
+        console.error('加载音频失败:', error);
+        showMessage('加载音频失败', 'error');
+    }
+}
+
+// 切换音频播放状态
+function toggleAudioPlay(itemId) {
+    const audioElement = document.getElementById(`audio-element-${itemId}`);
+    const playBtn = document.getElementById(`audio-play-btn-${itemId}`);
+
+    if (audioElement.paused) {
+        audioElement.play();
+        playBtn.innerHTML = '<svg class="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>';
+    } else {
+        audioElement.pause();
+        playBtn.innerHTML = '<svg class="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+    }
+
+    // 设置事件监听器
+    audioElement.ontimeupdate = () => updateAudioProgress(itemId);
+    audioElement.onended = () => {
+        playBtn.innerHTML = '<svg class="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+    };
+    audioElement.onloadedmetadata = () => {
+        const duration = audioElement.duration;
+        document.getElementById(`audio-duration-${itemId}`).textContent = formatAudioTime(duration);
+    };
+}
+
+// 更新音频进度
+function updateAudioProgress(itemId) {
+    const audioElement = document.getElementById(`audio-element-${itemId}`);
+    const currentTime = audioElement.currentTime;
+    const duration = audioElement.duration;
+
+    const progress = (currentTime / duration) * 100;
+    document.getElementById(`audio-progress-${itemId}`).style.width = `${progress}%`;
+    document.getElementById(`audio-time-${itemId}`).textContent = formatAudioTime(currentTime);
+}
+
+// 拖动音频进度
+function seekAudio(itemId, event) {
+    const audioElement = document.getElementById(`audio-element-${itemId}`);
+    const container = document.getElementById(`audio-progress-container-${itemId}`);
+    const rect = container.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const percentage = x / rect.width;
+    audioElement.currentTime = percentage * audioElement.duration;
+}
+
+// 关闭音频播放器
+function closeAudioPlayer(itemId) {
+    const audioElement = document.getElementById(`audio-element-${itemId}`);
+    const playerRow = document.getElementById(`audio-player-row-${itemId}`);
+
+    audioElement.pause();
+    playerRow.classList.add('hidden');
+}
+
+// 格式化音频时间
+function formatAudioTime(seconds) {
+    if (!seconds || isNaN(seconds)) return '00:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
 // 渲染音频分页
@@ -556,6 +704,9 @@ function showAddTaskModal() {
     document.getElementById('taskId').value = '';
     document.getElementById('taskEnabled').checked = true;
     handleTaskTypeChange();
+
+    // 加载音频库列表
+    loadAudioLibraryForTask();
 
     const modal = document.getElementById('taskModal');
     modal.classList.remove('hidden');
@@ -807,6 +958,206 @@ function closeAudioModal() {
     modal.classList.remove('flex');
 }
 
+// ==================== 音频库选择与预览 ====================
+
+let audioLibraryCache = [];
+
+async function loadAudioLibraryForTask() {
+    try {
+        const response = await fetchAPI('/audio-library?page=1&page_size=100');
+        if (response.code === 0) {
+            audioLibraryCache = response.data.items;
+            updateAudioFileSelect();
+        }
+    } catch (error) {
+        console.error('加载音频库失败:', error);
+    }
+}
+
+function updateAudioFileSelect() {
+    const select = document.getElementById('audioFileSelect');
+    select.innerHTML = '<option value="">-- 从音频库选择 --</option>';
+
+    audioLibraryCache.forEach(item => {
+        const option = document.createElement('option');
+        option.value = item.id;
+        option.textContent = `${item.filename} (${formatDuration(item.duration)})`;
+        select.appendChild(option);
+    });
+}
+
+async function refreshAudioLibrary() {
+    await loadAudioLibraryForTask();
+    showMessage('音频库已刷新', 'success');
+}
+
+async function onAudioFileSelected() {
+    const select = document.getElementById('audioFileSelect');
+    const audioId = select.value;
+
+    if (!audioId) {
+        clearAudioPreview();
+        document.getElementById('audioFileId').value = '';
+        return;
+    }
+
+    // 设置隐藏字段
+    document.getElementById('audioFileId').value = audioId;
+
+    // 加载音频详情并预览
+    try {
+        const response = await fetchAPI(`/audio-library/${audioId}`);
+        if (response.code === 0) {
+            const item = response.data;
+            showAudioPreview(item);
+        }
+    } catch (error) {
+        console.error('加载音频详情失败:', error);
+    }
+}
+
+function showAudioPreview(item) {
+    const container = document.getElementById('audioPreviewContainer');
+    const nameElement = document.getElementById('audioPreviewName');
+    const player = document.getElementById('audioPreviewPlayer');
+
+    // 构建音频 URL
+    let audioUrl = item.filepath;
+    if (audioUrl.startsWith('/')) {
+        audioUrl = audioUrl;
+    } else {
+        audioUrl = '/audio_uploads/' + item.filename;
+    }
+
+    nameElement.textContent = item.filename;
+    player.src = audioUrl;
+    container.classList.remove('hidden');
+}
+
+function clearAudioPreview() {
+    const container = document.getElementById('audioPreviewContainer');
+    const player = document.getElementById('audioPreviewPlayer');
+
+    player.pause();
+    player.src = '';
+    container.classList.add('hidden');
+}
+
+function clearAudioSelection() {
+    document.getElementById('audioFileSelect').value = '';
+    document.getElementById('audioFileId').value = '';
+    clearAudioPreview();
+}
+
+// ==================== 广播执行修复 ====================
+
+// 修复后的执行任务函数
+async function executeTask(taskId) {
+    if (!confirm('确定要执行这个任务吗？')) {
+        return;
+    }
+
+    try {
+        // 获取任务详情
+        const taskResponse = await fetchAPI(`/broadcast/tasks/${taskId}`);
+        if (taskResponse.code !== 0) {
+            showMessage('获取任务详情失败', 'error');
+            return;
+        }
+
+        const task = taskResponse.data;
+
+        // 如果是音频任务，先获取音频文件信息
+        let audioInfo = null;
+        if (task.task_type === 'audio' && task.audio_file_id) {
+            const audioResponse = await fetchAPI(`/audio-library/${task.audio_file_id}`);
+            if (audioResponse.code === 0) {
+                audioInfo = audioResponse.data;
+            }
+        }
+
+        // 准备执行数据
+        const executeData = {
+            task_id: taskId,
+            task_type: task.task_type,
+            audio_file_id: task.audio_file_id,
+            audio_filepath: audioInfo ? audioInfo.filepath : null,
+            tts_text: task.tts_text,
+            target_channels: []
+        };
+
+        const response = await fetchAPI('/broadcast/execute', {
+            method: 'POST',
+            body: JSON.stringify(executeData)
+        });
+
+        if (response.code === 0) {
+            showMessage('任务执行成功', 'success');
+            loadTasks(currentPageTasks);
+            loadStats();
+        } else {
+            showMessage('执行失败: ' + response.message, 'error');
+        }
+    } catch (error) {
+        console.error('执行任务失败:', error);
+        showMessage('执行失败', 'error');
+    }
+}
+
+// ==================== 修复编辑任务时的音频选择 ====================
+
+// 编辑任务时需要选择对应的音频
+const originalEditTask = editTask;
+
+async function editTask(taskId) {
+    try {
+        const response = await fetchAPI(`/broadcast/tasks/${taskId}`);
+        if (response.code === 0) {
+            const task = response.data;
+
+            // 先加载音频库
+            await loadAudioLibraryForTask();
+
+            document.getElementById('taskModalTitle').textContent = '编辑广播任务';
+            document.getElementById('taskId').value = task.id;
+            document.getElementById('taskName').value = task.name;
+            document.getElementById('taskType').value = task.task_type;
+            document.getElementById('triggerType').value = task.trigger_type;
+
+            // 设置音频文件选择
+            if (task.audio_file_id) {
+                document.getElementById('audioFileId').value = task.audio_file_id;
+                document.getElementById('audioFileSelect').value = task.audio_file_id;
+
+                // 加载并显示预览
+                try {
+                    const audioResponse = await fetchAPI(`/audio-library/${task.audio_file_id}`);
+                    if (audioResponse.code === 0) {
+                        showAudioPreview(audioResponse.data);
+                    }
+                } catch (error) {
+                    console.error('加载音频预览失败:', error);
+                }
+            } else {
+                document.getElementById('audioFileId').value = '';
+                clearAudioPreview();
+            }
+
+            document.getElementById('ttsText').value = task.tts_text || '';
+            document.getElementById('taskEnabled').checked = task.is_enabled;
+
+            handleTaskTypeChange();
+
+            const modal = document.getElementById('taskModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+    } catch (error) {
+        console.error('加载任务详情失败:', error);
+        showMessage('加载失败', 'error');
+    }
+}
+
 // 格式化时长
 function formatDuration(seconds) {
     if (!seconds) return '-';
@@ -868,5 +1219,455 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+// ==================== 音频上传功能 ====================
+
+function showUploadModal() {
+    const modal = document.getElementById('uploadModal');
+    if (!modal) {
+        // 如果模态框不存在，创建它
+        createUploadModal();
+        showUploadModal();
+        return;
+    }
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function createUploadModal() {
+    const modalHTML = `
+    <div id="uploadModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4">
+            <div class="p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-bold text-gray-800">上传音频文件</h2>
+                    <button onclick="closeUploadModal()" class="text-gray-400 hover:text-gray-600">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <form id="uploadForm" onsubmit="handleUpload(event)">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">选择文件 *</label>
+                            <input type="file" id="uploadFile" accept=".opus,.wav,.mp3,.webm" required
+                                   class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <p class="text-xs text-gray-500 mt-1">支持格式: Opus, WAV, MP3, WebM (最大 50MB)</p>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">描述</label>
+                            <textarea id="uploadDescription" rows="2"
+                                      class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                      placeholder="音频描述（可选）"></textarea>
+                        </div>
+
+                        <div id="uploadProgress" class="hidden">
+                            <div class="w-full bg-gray-200 rounded-full">
+                                <div id="uploadProgressBar" class="bg-blue-600 h-2 rounded-full transition-all" style="width: 0%"></div>
+                            </div>
+                            <p id="uploadStatus" class="text-sm text-gray-600 mt-1 text-center">上传中...</p>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end space-x-3 mt-6">
+                        <button type="button" onclick="closeUploadModal()"
+                                class="px-6 py-2 border rounded-lg hover:bg-gray-50">
+                            取消
+                        </button>
+                        <button type="submit"
+                                class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                            上传
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+}
+
+function closeUploadModal() {
+    const modal = document.getElementById('uploadModal');
+    if (modal) {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        // 重置表单
+        document.getElementById('uploadForm').reset();
+        document.getElementById('uploadProgress').classList.add('hidden');
+    }
+}
+
+async function handleUpload(event) {
+    event.preventDefault();
+
+    const fileInput = document.getElementById('uploadFile');
+    const description = document.getElementById('uploadDescription').value;
+    const file = fileInput.files[0];
+
+    if (!file) {
+        showMessage('请选择文件', 'error');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('description', description);
+    formData.append('source_type', 'upload');
+
+    // 显示进度
+    const progressDiv = document.getElementById('uploadProgress');
+    const progressBar = document.getElementById('uploadProgressBar');
+    const statusText = document.getElementById('uploadStatus');
+    progressDiv.classList.remove('hidden');
+
+    try {
+        const response = await fetch('/api/audio-library/upload', {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await response.json();
+
+        if (result.code === 0) {
+            progressBar.style.width = '100%';
+            statusText.textContent = '上传成功！';
+            showMessage('上传成功', 'success');
+
+            setTimeout(() => {
+                closeUploadModal();
+                loadAudioItems(currentPageAudio);
+                loadAudioStats();
+            }, 1000);
+        } else {
+            statusText.textContent = '上传失败: ' + result.message;
+            showMessage('上传失败: ' + result.message, 'error');
+        }
+    } catch (error) {
+        console.error('上传失败:', error);
+        statusText.textContent = '上传失败';
+        showMessage('上传失败', 'error');
+    }
+}
+
+// ==================== 浏览器录音功能 ====================
+
+let mediaRecorder = null;
+let audioChunks = [];
+let recordingTimer = null;
+let recordingStartTime = null;
+
+function showRecordModal() {
+    const modal = document.getElementById('recordModal');
+    if (!modal) {
+        createRecordModal();
+        showRecordModal();
+        return;
+    }
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function createRecordModal() {
+    const modalHTML = `
+    <div id="recordModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4">
+            <div class="p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-xl font-bold text-gray-800">在线录音</h2>
+                    <button onclick="closeRecordModal()" class="text-gray-400 hover:text-gray-600">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="space-y-4">
+                    <!-- 录音控制 -->
+                    <div class="flex items-center justify-center space-x-4 py-4">
+                        <button id="recordButton" onclick="toggleRecording()"
+                                class="w-16 h-16 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-colors">
+                            <svg id="recordIcon" class="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
+                                <circle cx="12" cy="12" r="6"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- 录音时长显示 -->
+                    <div class="text-center">
+                        <p id="recordingDuration" class="text-3xl font-mono text-gray-800">00:00</p>
+                        <p id="recordingStatus" class="text-sm text-gray-500 mt-1">点击按钮开始录音</p>
+                    </div>
+
+                    <!-- 音频波形可视化 -->
+                    <canvas id="audioVisualizer" width="400" height="100" class="w-full bg-gray-100 rounded-lg"></canvas>
+
+                    <!-- 预览播放器 -->
+                    <div id="previewPlayer" class="hidden">
+                        <audio id="previewAudio" controls class="w-full"></audio>
+                    </div>
+
+                    <!-- 描述 -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">描述</label>
+                        <textarea id="recordDescription" rows="2"
+                                  class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  placeholder="录音描述（可选）"></textarea>
+                    </div>
+                </div>
+
+                <div class="flex justify-end space-x-3 mt-6">
+                    <button type="button" onclick="closeRecordModal()"
+                            class="px-6 py-2 border rounded-lg hover:bg-gray-50">
+                        取消
+                    </button>
+                    <button id="saveRecordingBtn" onclick="saveRecording()" disabled
+                            class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
+                        保存
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+    // 初始化可视化画布
+    initAudioVisualizer();
+}
+
+function closeRecordModal() {
+    const modal = document.getElementById('recordModal');
+    if (modal) {
+        // 停止录音
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+            mediaRecorder.stop();
+        }
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+
+        // 重置状态
+        audioChunks = [];
+        document.getElementById('saveRecordingBtn').disabled = true;
+        document.getElementById('previewPlayer').classList.add('hidden');
+        document.getElementById('recordingDuration').textContent = '00:00';
+        document.getElementById('recordingStatus').textContent = '点击按钮开始录音';
+        updateRecordButton(false);
+    }
+}
+
+async function toggleRecording() {
+    if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+        await startRecording();
+    } else {
+        stopRecording();
+    }
+}
+
+async function startRecording() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                audioChunks.push(event.data);
+            }
+        };
+
+        mediaRecorder.onstop = () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            const audioUrl = URL.createObjectURL(audioBlob);
+
+            // 显示预览播放器
+            const previewPlayer = document.getElementById('previewPlayer');
+            const previewAudio = document.getElementById('previewAudio');
+            previewPlayer.classList.remove('hidden');
+            previewAudio.src = audioUrl;
+
+            // 启用保存按钮
+            document.getElementById('saveRecordingBtn').disabled = false;
+            document.getElementById('recordingStatus').textContent = '录音完成，点击保存按钮保存';
+
+            // 停止所有轨道
+            stream.getTracks().forEach(track => track.stop());
+
+            // 停止可视化
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+        };
+
+        mediaRecorder.start();
+        recordingStartTime = Date.now();
+
+        // 更新 UI
+        updateRecordButton(true);
+        document.getElementById('recordingStatus').textContent = '正在录音...';
+        document.getElementById('previewPlayer').classList.add('hidden');
+
+        // 启动计时器
+        recordingTimer = setInterval(updateRecordingDuration, 100);
+
+        // 启动可视化
+        startAudioVisualizer(stream);
+
+    } catch (error) {
+        console.error('录音失败:', error);
+        showMessage('无法访问麦克风，请检查权限设置', 'error');
+    }
+}
+
+function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+
+        // 停止计时器
+        if (recordingTimer) {
+            clearInterval(recordingTimer);
+            recordingTimer = null;
+        }
+
+        updateRecordButton(false);
+    }
+}
+
+function updateRecordButton(isRecording) {
+    const button = document.getElementById('recordButton');
+    const icon = document.getElementById('recordIcon');
+
+    if (isRecording) {
+        button.classList.remove('bg-red-500', 'hover:bg-red-600');
+        button.classList.add('bg-gray-800', 'hover:bg-gray-900');
+        icon.innerHTML = '<rect x="6" y="6" width="12" height="12"/>';
+    } else {
+        button.classList.remove('bg-gray-800', 'hover:bg-gray-900');
+        button.classList.add('bg-red-500', 'hover:bg-red-600');
+        icon.innerHTML = '<circle cx="12" cy="12" r="6"/>';
+    }
+}
+
+function updateRecordingDuration() {
+    if (!recordingStartTime) return;
+
+    const elapsed = Date.now() - recordingStartTime;
+    const seconds = Math.floor(elapsed / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+
+    document.getElementById('recordingDuration').textContent =
+        `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+async function saveRecording() {
+    if (audioChunks.length === 0) {
+        showMessage('没有录音数据', 'error');
+        return;
+    }
+
+    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+    const reader = new FileReader();
+
+    reader.onloadend = async () => {
+        const base64Data = reader.result;
+        const description = document.getElementById('recordDescription').value;
+        const duration = (Date.now() - recordingStartTime) / 1000;
+
+        try {
+            const response = await fetch('/api/audio-library/record', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    data: base64Data,
+                    filename: `recording_${new Date().toISOString().replace(/[:.]/g, '-')}`,
+                    description: description,
+                    duration: duration
+                })
+            });
+
+            const result = await response.json();
+
+            if (result.code === 0) {
+                showMessage('保存成功', 'success');
+                closeRecordModal();
+                loadAudioItems(currentPageAudio);
+                loadAudioStats();
+            } else {
+                showMessage('保存失败: ' + result.message, 'error');
+            }
+        } catch (error) {
+            console.error('保存失败:', error);
+            showMessage('保存失败', 'error');
+        }
+    };
+
+    reader.readAsDataURL(audioBlob);
+}
+
+// 音频可视化
+let audioContext = null;
+let analyser = null;
+let animationId = null;
+
+function initAudioVisualizer() {
+    const canvas = document.getElementById('audioVisualizer');
+    const ctx = canvas.getContext('2d');
+
+    // 绘制初始状态
+    ctx.fillStyle = '#f3f4f6';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+function startAudioVisualizer(stream) {
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
+
+    const source = audioContext.createMediaStreamSource(stream);
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 256;
+
+    source.connect(analyser);
+
+    const canvas = document.getElementById('audioVisualizer');
+    const ctx = canvas.getContext('2d');
+
+    function draw() {
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+
+        analyser.getByteFrequencyData(dataArray);
+
+        ctx.fillStyle = '#f3f4f6';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const barWidth = (canvas.width / bufferLength) * 2.5;
+        let x = 0;
+
+        for (let i = 0; i < bufferLength; i++) {
+            const barHeight = (dataArray[i] / 255) * canvas.height;
+
+            const gradient = ctx.createLinearGradient(0, canvas.height, 0, canvas.height - barHeight);
+            gradient.addColorStop(0, '#3b82f6');
+            gradient.addColorStop(1, '#8b5cf6');
+
+            ctx.fillStyle = gradient;
+            ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+
+            x += barWidth + 1;
+        }
+
+        animationId = requestAnimationFrame(draw);
+    }
+
+    draw();
+}
+
 </script>
 {% endblock %}

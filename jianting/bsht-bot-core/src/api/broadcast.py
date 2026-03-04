@@ -111,7 +111,7 @@ async def get_broadcast_stats(db: Database = Depends(get_db)):
 
 
 @router.post("/broadcast/execute")
-async def execute_broadcast_task(task_data: TaskExecute, db: Database = Depends(get_db)):
+async def execute_broadcast_task_api(task_data: TaskExecute, db: Database = Depends(get_db)):
     """
     执行广播任务
 
@@ -122,6 +122,7 @@ async def execute_broadcast_task(task_data: TaskExecute, db: Database = Depends(
         执行结果
     """
     import sqlite3
+    from src.bot_communicator import execute_broadcast_task
 
     conn = sqlite3.connect(db.db_path)
     cursor = conn.cursor()
@@ -142,34 +143,53 @@ async def execute_broadcast_task(task_data: TaskExecute, db: Database = Depends(
         conn.close()
         raise HTTPException(status_code=400, detail="任务已禁用")
 
-    # 模拟执行任务（实际需要集成广播服务）
-    execution_result = {
-        "task_id": task['id'],
-        "task_name": task['name'],
-        "task_type": task['task_type'],
-        "executed_at": datetime.now().isoformat(),
-        "success": True,
-        "message": "任务执行成功",
-        "target_channels": task_data.target_channels or []
-    }
+    # 准备执行参数
+    audio_filepath = None
+    if task['task_type'] == 'audio' and task['audio_file_id']:
+        # 获取音频文件路径
+        cursor.execute("SELECT filepath FROM audio_library WHERE id = ?", (task['audio_file_id'],))
+        audio_row = cursor.fetchone()
+        if audio_row:
+            audio_filepath = audio_row[0]
 
-    # 更新执行次数和时间
+    # 执行广播任务
     try:
+        broadcast_result = await execute_broadcast_task(
+            task_type=task['task_type'],
+            audio_filepath=audio_filepath,
+            tts_text=task.get('tts_text'),
+            channel_id=None  # 使用默认频道
+        )
+
+        execution_result = {
+            "task_id": task['id'],
+            "task_name": task['name'],
+            "task_type": task['task_type'],
+            "executed_at": datetime.now().isoformat(),
+            "success": broadcast_result.get('success', False),
+            "message": broadcast_result.get('message', '执行完成'),
+            "target_channels": task_data.target_channels or [],
+            "details": broadcast_result
+        }
+
+        # 更新执行次数和时间
         cursor.execute(
             "UPDATE broadcast_tasks SET last_executed = ?, execution_count = execution_count + 1 WHERE id = ?",
             (datetime.now().isoformat(), task['id'])
         )
         conn.commit()
-    except:
-        pass
 
-    conn.close()
+        conn.close()
 
-    return {
-        "code": 0,
-        "message": "success",
-        "data": execution_result
-    }
+        return {
+            "code": 0,
+            "message": "success",
+            "data": execution_result
+        }
+
+    except Exception as e:
+        conn.close()
+        raise HTTPException(status_code=500, detail=f"执行失败: {str(e)}")
 
 
 @router.post("/broadcast/toggle")

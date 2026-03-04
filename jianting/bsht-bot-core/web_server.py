@@ -47,6 +47,7 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "src" / "web" / "templates"
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "src" / "web" / "static")), name="static")
 app.mount("/recordings", StaticFiles(directory=str(BASE_DIR / "recordings")), name="recordings")
 app.mount("/audio_library", StaticFiles(directory=str(BASE_DIR / "data" / "audio_library")), name="audio_library")
+app.mount("/audio_uploads", StaticFiles(directory=str(BASE_DIR / "audio_uploads")), name="audio_uploads")
 
 
 # ====================
@@ -218,6 +219,10 @@ app.include_router(broadcast.router, prefix="/api", tags=["broadcast"])
 # 音频库 API
 from src.api import audio_library
 app.include_router(audio_library.router, prefix="/api", tags=["audio_library"])
+
+# 音频上传 API
+from src.api import audio_upload
+app.include_router(audio_upload.router, prefix="/api", tags=["audio_upload"])
 
 # 监控 API
 from src.api import monitor
