@@ -307,7 +307,10 @@ async def control_bot(control: BotControl):
                 try:
                     if proc.info['name'] and 'python' in proc.info['name'].lower():
                         cmdline = ' '.join(proc.info.get('cmdline') or [])
-                        if 'bot_server' in cmdline or 'multi_channel_bot' in cmdline:
+                        # 检测所有可能的 Bot 进程
+                        if ('bot_server' in cmdline or
+                            'multi_channel_bot' in cmdline or
+                            'run_bot' in cmdline):
                             status["running"] = True
                             status["pid"] = proc.info['pid']
                             status["uptime"] = datetime.fromtimestamp(proc.info['create_time']).isoformat()
