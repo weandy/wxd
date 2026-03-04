@@ -1256,7 +1256,37 @@ class BotServer:
     def _play_audio_file(self, filepath: str):
         """读取音频文件并通过 listener 发射"""
         import wave
+        import subprocess
+        import tempfile
+        import os
+
+        original_filepath = filepath
+        temp_wav = None
+
         try:
+            # 检查文件格式，如果不是 WAV 则转换
+            if not filepath.lower().endswith('.wav'):
+                logger.info(f"[播放] 检测到非 WAV 格式: {filepath}")
+
+                # 创建临时文件
+                temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                temp_wav_path = temp_wav.name
+                temp_wav.close()
+
+                logger.info(f"[播放] 使用 ffmpeg 转换为 WAV: {temp_wav_path}")
+
+                # 使用 ffmpeg 转换
+                subprocess.run([
+                    'ffmpeg', '-y', '-i', filepath,
+                    '-ar', '16000',  # 采样率 16kHz
+                    '-ac', '1',      # 单声道
+                    '-acodec', 'pcm_s16le',  # 16-bit PCM
+                    temp_wav_path
+                ], check=True, capture_output=True)
+
+                filepath = temp_wav_path
+                logger.info(f"[播放] 转换完成")
+
             self.listener.start_transmit()
             self._last_packet_time = time.time()  # 更新最后音频时间 (TX)
             with wave.open(filepath, 'rb') as wf:
@@ -1271,11 +1301,20 @@ class BotServer:
             # 等待最后的帧发送完毕
             time.sleep(0.1)
             self.listener.stop_transmit()
-            logger.info(f"[CMD] 音频播放完成: {filepath}")
+            logger.info(f"[CMD] 音频播放完成: {original_filepath}")
+
         except Exception as e:
             logger.error(f"播放音频失败: {e}")
             if hasattr(self, 'listener') and self.listener:
                 self.listener.stop_transmit()
+        finally:
+            # 清理临时文件
+            if temp_wav and os.path.exists(temp_wav_path):
+                try:
+                    os.remove(temp_wav_path)
+                    logger.info(f"[播放] 已删除临时文件: {temp_wav_path}")
+                except:
+                    pass
 
     def _start_ptt_keyboard(self):
         """启动键盘 PTT 监听线程 (使用 GetAsyncKeyState 直接检测物理按键状态)"""
