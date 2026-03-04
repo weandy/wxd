@@ -23,6 +23,17 @@ import io
 from pathlib import Path
 from datetime import datetime
 
+# Windows 控制台编码设置
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except:
+        # 如果 reconfigure 不可用，使用包装器
+        import codecs
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+
 # 添加项目根目录到 Python 路径
 ROOT_DIR = Path(__file__).parent
 sys.path.insert(0, str(ROOT_DIR))
