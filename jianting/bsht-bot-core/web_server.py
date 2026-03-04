@@ -43,6 +43,11 @@ app.add_middleware(
 BASE_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "src" / "web" / "templates"))
 
+# 确保必要的目录存在
+(BASE_DIR / "recordings").mkdir(exist_ok=True)
+(BASE_DIR / "data" / "audio_library").mkdir(parents=True, exist_ok=True)
+(BASE_DIR / "audio_uploads").mkdir(exist_ok=True)
+
 # 挂载静态文件
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "src" / "web" / "static")), name="static")
 app.mount("/recordings", StaticFiles(directory=str(BASE_DIR / "recordings")), name="recordings")
