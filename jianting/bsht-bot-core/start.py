@@ -3,6 +3,7 @@
 BSHT Bot 统一启动脚本
 
 可以同时启动 Web 平台和 Bot 机器人，或单独启动其中一个。
+实时显示所有日志输出，方便调试。
 
 Usage:
     python start.py               # 同时启动 Web + Bot
@@ -17,7 +18,9 @@ import time
 import signal
 import subprocess
 import argparse
+import threading
 from pathlib import Path
+from datetime import datetime
 
 # 添加项目根目录到 Python 路径
 ROOT_DIR = Path(__file__).parent
@@ -30,6 +33,19 @@ class ServiceManager:
     def __init__(self):
         self.processes = {}
         self.root_dir = ROOT_DIR
+        self.output_threads = {}
+        self.running = True
+
+    def _stream_output(self, name, proc):
+        """实时输出子进程日志"""
+        try:
+            for line in iter(proc.stdout.readline, ''):
+                if not line or not self.running:
+                    break
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                print(f"[{timestamp}] [{name.upper()}] {line}", end='', flush=True)
+        except Exception:
+            pass
 
     def start_web(self):
         """启动 Web 服务"""
@@ -49,13 +65,22 @@ class ServiceManager:
         )
         self.processes['web'] = web_proc
 
+        # 启动输出线程
+        output_thread = threading.Thread(
+            target=self._stream_output,
+            args=('web', web_proc),
+            daemon=True
+        )
+        output_thread.start()
+        self.output_threads['web'] = output_thread
+
         # 等待启动
         time.sleep(2)
         if web_proc.poll() is None:
-            print("✅ Web 服务启动成功: http://localhost:8000")
+            print("✅ Web 服务启动成功: http://localhost:8000\n")
             return True
         else:
-            print("❌ Web 服务启动失败")
+            print("❌ Web 服务启动失败\n")
             return False
 
     def start_bot(self):
@@ -76,22 +101,33 @@ class ServiceManager:
         )
         self.processes['bot'] = bot_proc
 
+        # 启动输出线程
+        output_thread = threading.Thread(
+            target=self._stream_output,
+            args=('bot', bot_proc),
+            daemon=True
+        )
+        output_thread.start()
+        self.output_threads['bot'] = output_thread
+
         # 等待启动
         time.sleep(3)
         if bot_proc.poll() is None:
-            print("✅ Bot 服务启动成功")
+            print("✅ Bot 服务启动成功\n")
             return True
         else:
-            print("❌ Bot 服务启动失败")
+            print("❌ Bot 服务启动失败\n")
             return False
 
     def stop_all(self):
         """停止所有服务"""
+        self.running = False
+
         if not self.processes:
             print("没有运行中的服务")
             return
 
-        print("🛑 停止所有服务...")
+        print("\n🛑 停止所有服务...")
 
         for name, proc in self.processes.items():
             if proc.poll() is None:
@@ -104,7 +140,8 @@ class ServiceManager:
                     proc.wait()
 
         self.processes.clear()
-        print("✅ 所有服务已停止")
+        self.output_threads.clear()
+        print("✅ 所有服务已停止\n")
 
     def get_status(self):
         """获取服务状态"""
@@ -150,50 +187,60 @@ class ServiceManager:
 
     def run_interactive(self):
         """交互式运行"""
+        print("\n" + "=" * 70)
+        print(" " * 20 + "🚀 BSHT Bot 启动中...")
+        print("=" * 70 + "\n")
+
         # 启动服务
         web_ok = self.start_web()
         bot_ok = self.start_bot()
 
         if not (web_ok and bot_ok):
             print("\n⚠️ 部分服务启动失败，按 Ctrl+C 退出...")
+            time.sleep(2)
             self.stop_all()
             return 1
 
-        print("\n" + "=" * 60)
-        print("✅ 所有服务已启动")
-        print("=" * 60)
+        print("\n" + "=" * 70)
+        print(" " * 15 + "✅ 所有服务已启动成功")
+        print("=" * 70)
         print("\n📋 服务信息:")
         print("   🌐 Web 平台: http://localhost:8000")
         print("   🤖 Bot 服务: 运行中")
         print("   👤 登录账号: admin / admin123")
-        print("\n💡 常用命令:")
-        print("   python start.py --status   查看状态")
-        print("   python start.py --stop     停止服务")
-        print("\n按 Ctrl+C 停止所有服务...\n")
+        print("\n💡 管理命令:")
+        print("   python start.py --status   查看服务状态")
+        print("   python start.py --stop     停止所有服务")
+        print("\n📝 日志说明:")
+        print("   [WEB]  - Web 服务日志（绿色时间戳）")
+        print("   [BOT]  - Bot 服务日志（绿色时间戳）")
+        print("\n" + "=" * 70)
+        print("按 Ctrl+C 停止所有服务\n")
 
         # 信号处理
         def signal_handler(sig, frame):
-            print("\n\n收到停止信号，正在关闭...")
+            print("\n\n" + "=" * 70)
+            print("收到停止信号，正在关闭所有服务...")
+            print("=" * 70 + "\n")
             self.stop_all()
             sys.exit(0)
 
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
 
-        # 持续运行
+        # 持续运行，监控进程
         try:
-            while True:
+            while self.running:
                 # 检查进程状态
                 for name, proc in list(self.processes.items()):
                     if proc.poll() is not None:
-                        print(f"⚠️ {name.upper()} 服务已停止")
-                        # 重新启动
+                        print(f"\n⚠️  [{datetime.now().strftime('%H:%M:%S')}] {name.upper()} 服务异常停止，正在重启...")
                         if name == 'web':
                             self.start_web()
                         elif name == 'bot':
                             self.start_bot()
 
-                time.sleep(5)
+                time.sleep(2)
         except KeyboardInterrupt:
             pass
         finally:
