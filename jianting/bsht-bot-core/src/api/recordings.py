@@ -291,13 +291,30 @@ async def get_recording_detail(
     finally:
         conn.close()
 
+    # 处理音频路径 - 提取相对路径
+    audio_path = recording.filepath
+    import os
+    audio_path = os.path.normpath(audio_path)
+    parts = audio_path.split(os.sep)
+    if "recordings" in parts:
+        idx = parts.index("recordings")
+        audio_path = "/".join(parts[idx:])
+    else:
+        # 如果提取失败，使用文件名和日期重建路径
+        try:
+            from datetime import datetime
+            date_str = datetime.fromisoformat(recording.timestamp).strftime("%Y-%m-%d")
+            audio_path = f"recordings/{date_str}/{recording.filename}"
+        except:
+            audio_path = f"recordings/{recording.filename}"
+
     return {
         "code": 0,
         "message": "success",
         "data": {
             "id": recording.id,
             "filename": recording.filename,
-            "filepath": recording.filepath,
+            "filepath": audio_path,  # 使用处理后的相对路径
             "channel_id": recording.channel_id,
             "user_id": recording.user_id,
             "user_name": recording.user_name or recording.user_id,
