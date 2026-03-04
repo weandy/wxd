@@ -338,7 +338,12 @@ class RecordingRecognizer:
             start_time_recognize = time.time()
 
             processor = self._get_processor()
-            ai_result = processor.process(filepath)
+            result = processor.process(filepath)
+
+            if isinstance(result, tuple):
+                ai_result, _quality = result
+            else:
+                ai_result = result
 
             recognize_duration = time.time() - start_time_recognize
 

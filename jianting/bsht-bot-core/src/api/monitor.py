@@ -59,7 +59,7 @@ async def get_monitor_overview(db: Database = Depends(get_db)):
     active_channels_7d = cursor.fetchone()[0]
 
     # 系统资源使用情况
-    cpu_percent = psutil.cpu_percent(interval=1)
+    cpu_percent = psutil.cpu_percent(interval=0)
     memory = psutil.virtual_memory()
     memory_percent = memory.percent
     memory_used = memory.used / (1024**3)  # GB
