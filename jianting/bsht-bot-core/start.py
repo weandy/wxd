@@ -19,6 +19,7 @@ import signal
 import subprocess
 import argparse
 import threading
+import io
 from pathlib import Path
 from datetime import datetime
 
@@ -66,6 +67,7 @@ class ServiceManager:
         # 使用 -u 参数禁用缓冲
         env = os.environ.copy()
         env['PYTHONUNBUFFERED'] = '1'
+        env['PYTHONIOENCODING'] = 'utf-8'  # 强制 UTF-8 编码
 
         web_cmd = [sys.executable, "-u", "web_server.py"]
         web_proc = subprocess.Popen(
@@ -73,10 +75,19 @@ class ServiceManager:
             cwd=self.root_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            universal_newlines=True,
+            universal_newlines=False,  # 改为 False，使用字节模式
             bufsize=1,  # 行缓冲
             env=env
         )
+
+        # 创建文本包装器，使用 UTF-8 解码
+        web_proc.stdout = io.TextIOWrapper(
+            web_proc.stdout,
+            encoding='utf-8',
+            errors='replace',  # 遇到无法解码的字符时替换
+            line_buffering=True
+        )
+
         self.processes['web'] = web_proc
 
         # 启动输出线程
@@ -107,6 +118,7 @@ class ServiceManager:
         # 使用 -u 参数禁用缓冲
         env = os.environ.copy()
         env['PYTHONUNBUFFERED'] = '1'
+        env['PYTHONIOENCODING'] = 'utf-8'  # 强制 UTF-8 编码
 
         bot_cmd = [sys.executable, "-u", "run_bot.py"]
         bot_proc = subprocess.Popen(
@@ -114,10 +126,19 @@ class ServiceManager:
             cwd=self.root_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            universal_newlines=True,
+            universal_newlines=False,  # 改为 False，使用字节模式
             bufsize=1,  # 行缓冲
             env=env
         )
+
+        # 创建文本包装器，使用 UTF-8 解码
+        bot_proc.stdout = io.TextIOWrapper(
+            bot_proc.stdout,
+            encoding='utf-8',
+            errors='replace',  # 遇到无法解码的字符时替换
+            line_buffering=True
+        )
+
         self.processes['bot'] = bot_proc
 
         # 启动输出线程
