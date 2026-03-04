@@ -39,6 +39,7 @@ logs/
 data/
 recordings/
 audio_uploads/
+tts/
 
 # 凭证
 .env

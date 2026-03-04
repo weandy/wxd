@@ -47,12 +47,14 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "src" / "web" / "templates"
 (BASE_DIR / "recordings").mkdir(exist_ok=True)
 (BASE_DIR / "data" / "audio_library").mkdir(parents=True, exist_ok=True)
 (BASE_DIR / "audio_uploads").mkdir(exist_ok=True)
+(BASE_DIR / "tts").mkdir(exist_ok=True)
 
 # 挂载静态文件
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "src" / "web" / "static")), name="static")
 app.mount("/recordings", StaticFiles(directory=str(BASE_DIR / "recordings")), name="recordings")
 app.mount("/audio_library", StaticFiles(directory=str(BASE_DIR / "data" / "audio_library")), name="audio_library")
 app.mount("/audio_uploads", StaticFiles(directory=str(BASE_DIR / "audio_uploads")), name="audio_uploads")
+app.mount("/tts", StaticFiles(directory=str(BASE_DIR / "tts")), name="tts")
 
 
 # ====================

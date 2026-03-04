@@ -309,10 +309,16 @@ class BotServer:
                         def generate_and_play():
                             try:
                                 import requests
+                                import subprocess
 
-                                # 创建临时文件
-                                temp_dir = tempfile.gettempdir()
-                                temp_file = os.path.join(temp_dir, f"tts_{int(time.time())}.mp3")
+                                # 创建 tts 目录
+                                tts_dir = Path("tts")
+                                tts_dir.mkdir(exist_ok=True)
+
+                                # 生成文件名
+                                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                                mp3_file = tts_dir / f"{timestamp}.mp3"
+                                wav_file = tts_dir / f"{timestamp}.wav"
 
                                 logger.info(f"[API] 使用 TTS Worker API 生成语音: {voice}")
 
@@ -329,24 +335,44 @@ class BotServer:
                                 response = requests.post(tts_url, json=payload, timeout=30)
 
                                 if response.status_code == 200:
-                                    # 保存音频文件
-                                    with open(temp_file, 'wb') as f:
+                                    # 保存 MP3 文件
+                                    with open(mp3_file, 'wb') as f:
                                         f.write(response.content)
 
-                                    logger.info(f"[API] TTS 语音生成完成: {temp_file}")
+                                    logger.info(f"[API] TTS MP3 已保存: {mp3_file}")
 
-                                    # 播放音频文件
-                                    self._play_audio_file(temp_file)
-
-                                    logger.info(f"[API] TTS 广播完成")
-
-                                    # 删除临时文件
+                                    # 使用 ffmpeg 转换为 WAV
                                     try:
-                                        os.remove(temp_file)
-                                    except:
-                                        pass
+                                        subprocess.run([
+                                            'ffmpeg', '-y', '-i', str(mp3_file),
+                                            '-ar', '16000',  # 采样率 16kHz
+                                            '-ac', '1',      # 单声道
+                                            '-acodec', 'pcm_s16le',  # 16-bit PCM
+                                            str(wav_file)
+                                        ], check=True, capture_output=True)
 
-                                    return True
+                                        logger.info(f"[API] TTS WAV 已转换: {wav_file}")
+
+                                        # 播放 WAV 文件
+                                        self._play_audio_file(str(wav_file))
+
+                                        logger.info(f"[API] TTS 广播完成")
+
+                                        return True
+                                    except subprocess.CalledProcessError as e:
+                                        logger.error(f"[API] ffmpeg 转换失败: {e}")
+                                        logger.error(f"[API] stderr: {e.stderr.decode() if e.stderr else 'N/A'}")
+                                        return False
+                                    except FileNotFoundError:
+                                        logger.error(f"[API] ffmpeg 未找到，请安装 ffmpeg")
+                                        return False
+                                else:
+                                    logger.error(f"[API] TTS API 返回错误: {response.status_code} - {response.text}")
+                                    return False
+
+                            except Exception as e:
+                                logger.error(f"[API] TTS 生成或播放失败: {e}")
+                                return False
                                 else:
                                     logger.error(f"[API] TTS API 返回错误: {response.status_code} - {response.text}")
                                     return False
