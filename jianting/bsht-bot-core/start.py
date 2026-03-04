@@ -20,6 +20,7 @@ import subprocess
 import argparse
 import threading
 import io
+import psutil
 from pathlib import Path
 from datetime import datetime
 
@@ -68,11 +69,63 @@ class ServiceManager:
             if self.running:
                 print(f"[ERROR] [{name.upper()}] 输出读取异常: {e}\n")
 
+    def _cleanup_port_conflicts(self, port: int, service_name: str):
+        """清理端口冲突进程（仅清理 Python 相关进程）"""
+        conflicts = []
+
+        try:
+            # 查找占用端口的进程
+            for conn in psutil.net_connections(kind='inet'):
+                if conn.laddr and conn.laddr.port == port and conn.status == 'LISTEN' and conn.pid:
+                    pid = conn.pid
+
+                    # 跳过当前进程
+                    if pid == os.getpid():
+                        continue
+
+                    try:
+                        proc = psutil.Process(pid)
+                        cmdline = ' '.join(proc.cmdline() or [])
+                        name = proc.name()
+
+                        # 仅处理 Python 相关进程
+                        if 'python' in name.lower() or 'python' in cmdline.lower():
+                            conflicts.append((pid, name, cmdline))
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        continue
+        except Exception:
+            return
+
+        if conflicts:
+            print(f"⚠️ 检测到 {service_name} 端口 {port} 被占用，正在清理冲突进程...")
+            for pid, name, cmdline in conflicts:
+                try:
+                    proc = psutil.Process(pid)
+                    print(f"   清理冲突进程 PID={pid}: {cmdline[:100]}")
+                    proc.terminate()
+                    proc.wait(timeout=3)
+                    print(f"   ✅ 已终止 PID={pid}")
+                except psutil.TimeoutExpired:
+                    try:
+                        proc.kill()
+                        proc.wait(timeout=2)
+                        print(f"   ✅ 已强制终止 PID={pid}")
+                    except Exception as e:
+                        print(f"   ❌ 强制终止失败 PID={pid}: {e}")
+                except Exception as e:
+                    print(f"   ❌ 终止失败 PID={pid}: {e}")
+
+            # 给系统一点时间释放端口
+            time.sleep(1)
+
     def start_web(self):
         """启动 Web 服务"""
         if 'web' in self.processes and self.processes['web'].poll() is None:
             print("✅ Web 服务已在运行")
             return True
+
+        # 启动前清理 8000 端口冲突
+        self._cleanup_port_conflicts(8000, "Web")
 
         print("🌐 启动 Web 服务...")
         # 使用 -u 参数禁用缓冲
@@ -124,6 +177,9 @@ class ServiceManager:
         if 'bot' in self.processes and self.processes['bot'].poll() is None:
             print("✅ Bot 服务已在运行")
             return True
+
+        # 启动前清理 8765 端口冲突（Bot API 端口）
+        self._cleanup_port_conflicts(8765, "Bot API")
 
         print("🤖 启动 Bot 服务...")
         # 使用 -u 参数禁用缓冲

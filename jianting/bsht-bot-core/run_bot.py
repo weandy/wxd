@@ -123,9 +123,8 @@ def main():
 
     logger.info("=" * 60)
     logger.info("BSHT Bot 启动 (纯 Bot 模式，无 Web 服务)")
+    logger.info(f"   进程 PID: {os.getpid()}")
     logger.info("=" * 60)
-
-    # 加载配置
     config = load_config()
 
     # 获取配置参数（命令行参数优先）
