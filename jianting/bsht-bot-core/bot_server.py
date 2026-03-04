@@ -274,11 +274,13 @@ class BotServer:
                 @app.route('/api/broadcast/tts', methods=['POST'])
                 def broadcast_tts():
                     """接收 TTS 广播请求"""
+                    import tempfile
+                    import os
                     try:
                         data = request.get_json()
                         text = data.get('text')
                         channel_id = data.get('channel_id', self.target_channel_id)
-                        voice = data.get('voice', 'default')
+                        voice = data.get('voice', 'zh-CN-XiaoxiaoNeural')
 
                         if not text:
                             return jsonify({
@@ -288,12 +290,58 @@ class BotServer:
 
                         logger.info(f"[API] 收到 TTS 广播请求: {text[:50]}...")
 
-                        # TODO: 实现 TTS 功能
-                        # 目前返回未实现
+                        # 使用 edge-tts 生成语音
+                        async def generate_and_play():
+                            try:
+                                import asyncio
+                                import edge_tts
+
+                                # 创建临时文件
+                                temp_dir = tempfile.gettempdir()
+                                temp_file = os.path.join(temp_dir, f"tts_{int(time.time())}.mp3")
+
+                                logger.info(f"[API] 使用 edge-tts 生成语音: {voice}")
+
+                                # 生成语音
+                                communicate = edge_tts.Communicate(text, voice)
+                                await communicate.save(temp_file)
+
+                                logger.info(f"[API] TTS 语音生成完成: {temp_file}")
+
+                                # 播放音频文件
+                                self._play_audio_file(temp_file)
+
+                                logger.info(f"[API] TTS 广播完成")
+
+                                # 删除临时文件
+                                try:
+                                    os.remove(temp_file)
+                                except:
+                                    pass
+
+                                return True
+                            except Exception as e:
+                                logger.error(f"[API] TTS 生成或播放失败: {e}")
+                                return False
+
+                        # 在单独线程中执行异步任务
+                        def run_tts():
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            try:
+                                success = loop.run_until_complete(generate_and_play())
+                                if not success:
+                                    logger.error("[API] TTS 广播失败")
+                            finally:
+                                loop.close()
+
+                        threading.Thread(target=run_tts, daemon=True).start()
+
                         return jsonify({
-                            'success': False,
-                            'message': 'TTS 广播功能尚未实现'
-                        }), 501
+                            'success': True,
+                            'message': 'TTS 广播已开始',
+                            'text': text
+                        })
 
                     except Exception as e:
                         logger.error(f"[API] 处理 TTS 请求失败: {e}")
