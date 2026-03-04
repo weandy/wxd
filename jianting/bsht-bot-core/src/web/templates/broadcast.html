@@ -367,8 +367,28 @@ const pageSize = 10;
 
 // 页面加载时初始化
 document.addEventListener('DOMContentLoaded', () => {
-    loadStats();
-    loadTasks(1);
+    console.log('[broadcast] DOMContentLoaded triggered');
+    console.log('[broadcast] fetchAPI available:', typeof fetchAPI !== 'undefined');
+
+    // 检查 fetchAPI 是否可用
+    if (typeof fetchAPI === 'undefined') {
+        console.error('[broadcast] fetchAPI is not defined! Waiting for it to load...');
+        // 延迟执行，等待 base.html 的脚本加载完成
+        setTimeout(() => {
+            if (typeof fetchAPI !== 'undefined') {
+                console.log('[broadcast] fetchAPI is now available, loading data...');
+                loadStats();
+                loadTasks(1);
+            } else {
+                console.error('[broadcast] fetchAPI still not available after delay!');
+                alert('页面加载失败，请刷新重试');
+            }
+        }, 100);
+    } else {
+        console.log('[broadcast] fetchAPI available, loading data...');
+        loadStats();
+        loadTasks(1);
+    }
 });
 
 // 切换Tab
@@ -395,8 +415,10 @@ function switchTab(tab) {
 
 // 加载统计数据
 async function loadStats() {
+    console.log('[broadcast] loadStats() called');
     try {
         const response = await fetchAPI('/broadcast/stats');
+        console.log('[broadcast] stats response:', response);
         if (response.code === 0) {
             const stats = response.data;
             document.getElementById('totalTasks').textContent = stats.total;
@@ -405,7 +427,7 @@ async function loadStats() {
             document.getElementById('taskTypes').textContent = Object.keys(stats.by_type).length;
         }
     } catch (error) {
-        console.error('加载统计失败:', error);
+        console.error('[broadcast] 加载统计失败:', error);
     }
 }
 
