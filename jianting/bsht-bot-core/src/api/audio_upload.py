@@ -298,28 +298,64 @@ async def save_browser_recording(
             detail=f"录音太大。最大支持 {MAX_FILE_SIZE // (1024*1024)}MB"
         )
 
-    # 生成文件名
+    # 生成基础文件名（去掉用户可能传入的扩展名，避免 .webm.webm）
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     if filename:
         safe_filename = "".join(c for c in filename if c.isalnum() or c in ('_', '-', '.'))
+        for ext in ('.webm', '.wav', '.mp3', '.opus', '.m4a', '.ogg'):
+            if safe_filename.lower().endswith(ext):
+                safe_filename = safe_filename[:-len(ext)]
+                break
+        if not safe_filename:
+            safe_filename = f"recording_{timestamp}"
     else:
         safe_filename = f"recording_{timestamp}"
 
-    filename = f"{safe_filename}.webm"
+    # 先落地原始录音，再统一转成可直接发射的 WAV（48kHz/单声道/16-bit PCM）
+    raw_filename = f"{safe_filename}.webm"
+    raw_file_path = UPLOAD_DIR / raw_filename
 
-    # 保存文件
-    file_path = UPLOAD_DIR / filename
-    logger.info(f"[录音保存] 保存文件到: {file_path}")
+    wav_filename = f"{safe_filename}.wav"
+    wav_file_path = UPLOAD_DIR / wav_filename
+
+    logger.info(f"[录音保存] 保存原始文件到: {raw_file_path}")
     try:
-        with open(file_path, 'wb') as f:
+        with open(raw_file_path, 'wb') as f:
             f.write(file_content)
-        logger.info(f"[录音保存] 文件保存成功")
+        logger.info("[录音保存] 原始文件保存成功")
     except Exception as e:
-        logger.error(f"[录音保存] 文件保存失败: {e}")
+        logger.error(f"[录音保存] 原始文件保存失败: {e}")
         raise HTTPException(status_code=500, detail=f"文件保存失败: {str(e)}")
 
-    # 获取音频时长
-    duration = data.get('duration')  # 修正：从原始 data 获取，不是 audio_data
+    # 转换为发射兼容 WAV
+    try:
+        import subprocess
+        subprocess.run([
+            'ffmpeg', '-y', '-i', str(raw_file_path),
+            '-ar', '48000',
+            '-ac', '1',
+            '-acodec', 'pcm_s16le',
+            str(wav_file_path)
+        ], check=True, capture_output=True)
+        logger.info(f"[录音保存] WAV 转换成功: {wav_file_path}")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"[录音保存] ffmpeg 转换失败: {e}")
+        stderr_text = e.stderr.decode(errors='ignore') if e.stderr else str(e)
+        raise HTTPException(status_code=500, detail=f"音频转 WAV 失败: {stderr_text[:200]}")
+    except FileNotFoundError:
+        logger.error("[录音保存] ffmpeg 未安装或不在 PATH")
+        raise HTTPException(status_code=500, detail="服务器未安装 ffmpeg，无法转换为 WAV")
+
+    # 删除原始 webm，仅保留可直接发射的 wav
+    try:
+        if raw_file_path.exists():
+            raw_file_path.unlink()
+    except Exception:
+        pass
+
+    # 获取音频时长（以转换后的 WAV 为准）
+    duration = data.get('duration') or get_audio_duration(str(wav_file_path))
+
 
     # 保存到数据库
     logger.info(f"[录音保存] 开始保存到数据库...")
@@ -333,13 +369,13 @@ async def save_browser_recording(
             INSERT INTO audio_library (filename, filepath, source_type, description, duration, file_size, metadata, created_by, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            filename,
-            str(file_path),
+            wav_filename,
+            str(wav_file_path),
             'recording',
             description,
             duration,
             len(file_content),
-            '{"browser_recorded": true}',
+            '{"browser_recorded": true, "converted_to_wav": true, "sample_rate": 48000, "channels": 1, "codec": "pcm_s16le"}',
             1,
             now
         ))
@@ -353,8 +389,8 @@ async def save_browser_recording(
             "message": "保存成功",
             "data": {
                 "id": item_id,
-                "filename": filename,
-                "filepath": str(file_path),
+                "filename": wav_filename,
+                "filepath": str(wav_file_path),
                 "duration": duration
             }
         }
@@ -363,8 +399,8 @@ async def save_browser_recording(
         import traceback
         logger.error(traceback.format_exc())
         conn.rollback()
-        if file_path.exists():
-            file_path.unlink()
+        if wav_file_path.exists():
+            wav_file_path.unlink()
         raise HTTPException(status_code=500, detail=f"数据库保存失败: {str(e)}")
     finally:
         conn.close()

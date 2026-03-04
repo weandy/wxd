@@ -21,6 +21,8 @@ import argparse
 import threading
 import io
 import psutil
+import json
+import urllib.request
 from pathlib import Path
 from datetime import datetime
 
@@ -117,6 +119,30 @@ class ServiceManager:
 
             # 给系统一点时间释放端口
             time.sleep(1)
+
+    def _wait_bot_api_ready(self, timeout: int = 45) -> bool:
+        """等待 Bot API 就绪（只要 /api/status 可访问即视为就绪）"""
+        deadline = time.time() + timeout
+        url = "http://127.0.0.1:8765/api/status"
+
+        while time.time() < deadline:
+            # 进程如果已经退出，不必再等
+            bot_proc = self.processes.get('bot')
+            if bot_proc and bot_proc.poll() is not None:
+                return False
+
+            try:
+                with urllib.request.urlopen(url, timeout=2) as resp:
+                    if resp.status == 200:
+                        # 只要 API 可达即判定就绪，避免启动早期 running/has_listener 尚未置位导致误判
+                        _ = json.loads(resp.read().decode('utf-8', errors='ignore'))
+                        return True
+            except Exception:
+                pass
+
+            time.sleep(0.5)
+
+        return False
 
     def start_web(self):
         """启动 Web 服务"""
@@ -221,11 +247,13 @@ class ServiceManager:
 
         # 等待启动
         time.sleep(3)
-        if bot_proc.poll() is None:
-            print("✅ Bot 服务启动成功\n")
+
+        # 主进程存活 + API 可达 才算真正启动成功
+        if bot_proc.poll() is None and self._wait_bot_api_ready(timeout=45):
+            print("✅ Bot 服务启动成功 (API 已就绪)\n")
             return True
         else:
-            print("❌ Bot 服务启动失败\n")
+            print("❌ Bot 服务启动失败（API 未就绪或进程异常）\n")
             return False
 
     def stop_all(self):

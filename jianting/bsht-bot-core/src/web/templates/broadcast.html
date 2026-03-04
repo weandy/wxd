@@ -1766,9 +1766,12 @@ async function saveRecording() {
                 hour12: false
             }).replace(/\//g, '-').replace(/:/g, '-').replace(/,/g, '')}`;
         }
-        // 确保文件名有扩展名
-        if (!filename.endsWith('.webm')) {
-            filename += '.webm';
+        // 保持文件名基础名，后端会统一转为 WAV
+        for (const ext of ['.webm', '.wav', '.mp3', '.opus', '.m4a', '.ogg']) {
+            if (filename.toLowerCase().endsWith(ext)) {
+                filename = filename.slice(0, -ext.length);
+                break;
+            }
         }
 
         try {

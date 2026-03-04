@@ -32,6 +32,7 @@ if sys.platform == 'win32':
 
 import signal
 import argparse
+import threading
 
 # 添加项目根目录到 Python 路径
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -105,20 +106,31 @@ def init_recognizer(config, scan_history: bool = False):
         recognizer.set_pusher(pusher)
         logger.info(f"📲 微信推送已启用 ({len(pusher.targets)} 个目标)")
 
-    # 启动时扫描历史录音（默认关闭，避免每次启动触发补扫）
+    # 启动时扫描历史录音（后台异步执行，避免阻塞 Bot/API 启动）
     recordings_dir = os.path.join(ROOT_DIR, 'recordings')
     if not os.path.exists(recordings_dir):
         os.makedirs(recordings_dir)
 
     if scan_history:
-        logger.info("🔍 扫描历史录音文件...")
-        added, processed = recognizer.scan_and_register_recordings(recordings_dir, max_count=50)
-        if added > 0 or processed > 0:
-            logger.info(f"   📝 新增 {added} 条记录, 识别 {processed} 个文件")
-        else:
-            logger.info("   ✅ 没有需要处理的历史文件")
+        def _scan_history_worker():
+            try:
+                logger.info("🔍 [后台] 扫描历史录音文件...")
+                added, processed = recognizer.scan_and_register_recordings(recordings_dir, max_count=50)
+                if added > 0 or processed > 0:
+                    logger.info(f"   📝 [后台] 新增 {added} 条记录, 识别 {processed} 个文件")
+                else:
+                    logger.info("   ✅ [后台] 没有需要处理的历史文件")
+            except Exception as e:
+                logger.warning(f"⚠️ [后台] 历史录音扫描失败: {e}")
+
+        threading.Thread(
+            target=_scan_history_worker,
+            name="HistoryRecordingScan",
+            daemon=True
+        ).start()
+        logger.info("⏩ 历史录音扫描已在后台启动（不阻塞 Bot/API 启动）")
     else:
-        logger.info("⏭️ 已跳过历史录音扫描（默认开启，可用 --no-scan-history 关闭）")
+        logger.info("⏭️ 已跳过历史录音扫描（可用 --scan-history 开启）")
 
     # 创建回调函数
     return recognizer, create_recording_callback(recognizer)

@@ -276,22 +276,24 @@ class BotServer:
 
                         logger.info(f"[API] 收到音频广播请求: {audio_path}")
 
-                        # 在单独线程中播放音频，避免阻塞 API 响应
-                        def play_audio_async():
-                            try:
-                                self._play_audio_file(audio_path)
-                                logger.info(f"[API] 音频广播完成: {audio_path}")
-                            except Exception as e:
-                                logger.error(f"[API] 音频广播失败: {e}")
+                        # 同步执行，确保 API 返回结果与真实播放结果一致
+                        ok = self._play_audio_file(audio_path)
+                        if ok:
+                            logger.info(f"[API] 音频广播完成: {audio_path}")
+                            return jsonify({
+                                'success': True,
+                                'message': '音频广播完成',
+                                'audio_path': audio_path,
+                                'channel_id': channel_id
+                            })
 
-                        threading.Thread(target=play_audio_async, daemon=True).start()
-
+                        logger.error(f"[API] 音频广播失败: {audio_path}")
                         return jsonify({
-                            'success': True,
-                            'message': '音频广播已开始',
+                            'success': False,
+                            'message': '音频广播失败，请查看 Bot 日志',
                             'audio_path': audio_path,
                             'channel_id': channel_id
-                        })
+                        }), 500
 
                     except Exception as e:
                         logger.error(f"[API] 处理广播请求失败: {e}")
@@ -1265,131 +1267,143 @@ class BotServer:
             except Exception as e:
                 logger.error(f"处理 PTT 音频文件失败 {fname}: {e}")
 
-    def _play_audio_file(self, filepath: str):
-        """读取音频文件并通过 listener 发射"""
+    def _play_audio_file(self, filepath: str) -> bool:
+        """读取音频文件并通过 listener 发射，成功返回 True，失败返回 False"""
         import wave
         import subprocess
         import tempfile
         import os
         import time
         import numpy as np
-        import queue
 
         original_filepath = filepath
-        temp_wav = None
+        temp_wav_path = None
 
         try:
-            # 检查文件格式和采样率
-            needs_conversion = False
-            target_sample_rate = 48000  # BSHT 系统使用 48kHz
+            if not os.path.exists(filepath):
+                logger.error(f"[播放] 文件不存在: {filepath}")
+                return False
 
-            # 使用 wave 模块检查音频参数
-            with wave.open(filepath, 'rb') as check_wf:
-                original_sample_rate = check_wf.getframerate()
-                if original_sample_rate != target_sample_rate:
-                    logger.info(f"[播放] 检测到采样率不匹配: {original_sample_rate}Hz，需要转换为 {target_sample_rate}Hz")
+            target_sample_rate = 48000  # BSHT 系统使用 48kHz
+            ext = os.path.splitext(filepath)[1].lower()
+            is_wav = ext == '.wav'
+            needs_conversion = not is_wav
+
+            # 仅在 WAV 文件时使用 wave 检查参数
+            if is_wav:
+                try:
+                    with wave.open(filepath, 'rb') as check_wf:
+                        original_sample_rate = check_wf.getframerate()
+                        if original_sample_rate != target_sample_rate:
+                            logger.info(
+                                f"[播放] 检测到采样率不匹配: {original_sample_rate}Hz，需要转换为 {target_sample_rate}Hz"
+                            )
+                            needs_conversion = True
+                except wave.Error as e:
+                    logger.warning(f"[播放] WAV 头解析失败，将尝试 ffmpeg 转换: {e}")
                     needs_conversion = True
 
-            # 如果不是 WAV 格式或采样率不匹配，使用 ffmpeg 转换
-            if needs_conversion or not filepath.lower().endswith('.wav'):
+            # 非 WAV 或参数不匹配时，统一转为 48kHz/单声道/16-bit PCM WAV
+            if needs_conversion:
                 logger.info(f"[播放] 需要 ffmpeg 转换: {filepath}")
 
-                # 创建临时文件
                 temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
                 temp_wav_path = temp_wav.name
                 temp_wav.close()
 
-                # 使用 ffmpeg 转换为 48kHz
                 subprocess.run([
                     'ffmpeg', '-y', '-i', filepath,
-                    '-ar', str(target_sample_rate),  # 采样率 48kHz
-                    '-ac', '1',      # 单声道
-                    '-acodec', 'pcm_s16le',  # 16-bit PCM
+                    '-ar', str(target_sample_rate),
+                    '-ac', '1',
+                    '-acodec', 'pcm_s16le',
                     temp_wav_path
                 ], check=True, capture_output=True)
 
                 filepath = temp_wav_path
-                logger.info(f"[播放] 转换完成: {original_sample_rate}Hz -> {target_sample_rate}Hz")
+                logger.info(f"[播放] 转换完成: {original_filepath} -> {filepath}")
 
-            # ✅ 在启动新发射前，先停止正在进行的发射
-            logger.info(f"[播放] 检查当前发射状态...")
-
-            # 检查发射状态（包括 TRANSMITTING 和 STOPPING）
+            # 在启动新发射前，先停止正在进行的发射
+            logger.info("[播放] 检查当前发射状态...")
             current_state = getattr(self.listener, '_tx_state', 0)
             is_transmitting = current_state in (2, 3, 4)  # 2=TRANSMITTING, 3=STOPPING, 4=BUFFERING
 
             if is_transmitting:
                 logger.warning(f"[播放] 检测到发射中 (状态={current_state})，先停止...")
-                # ✅ stop_transmit_web() 会等待编码线程退出并正确处理状态转换
                 self.listener.stop_transmit_web()
-                logger.info(f"[播放] 旧发射已停止")
+                logger.info("[播放] 旧发射已停止")
 
-            # 使用 Web 模式发射 (不启动本地麦克风)
-            logger.info(f"[播放] 启动 Web 模式发射...")
+            logger.info("[播放] 启动 Web 模式发射...")
             if not self.listener.start_transmit_web():
                 logger.error("[播放] 启动 Web 发射失败")
-                return
+                return False
 
-            # 读取 WAV 文件并播放
             with wave.open(filepath, 'rb') as wf:
-                # 检查音频参数
                 sample_rate = wf.getframerate()
                 channels = wf.getnchannels()
-                sampwidth = wf.getsampwidth()  # ✅ 修复: getsampsize -> getsampwidth
+                sampwidth = wf.getsampwidth()
 
-                logger.info(f"[播放] 音频参数: {sample_rate}Hz, {channels}ch, {sampwidth*8}bit")
+                logger.info(f"[播放] 音频参数: {sample_rate}Hz, {channels}ch, {sampwidth * 8}bit")
 
-                # 计算帧大小 (20ms @ 采样率)
                 samples_per_frame = int(sample_rate * 0.020)  # 20ms
-                frame_bytes = samples_per_frame * sampwidth  # 字节数
+                frame_bytes = samples_per_frame * sampwidth
 
                 logger.info(f"[播放] 每帧: {samples_per_frame} samples, {frame_bytes} bytes")
 
                 total_frames = 0
-                dropped_frames = 0
 
                 while True:
                     data = wf.readframes(samples_per_frame)
                     if not data or len(data) < frame_bytes:
                         break
 
-                    # 转换为 numpy array (期望的格式)
                     pcm_array = np.frombuffer(data, dtype=np.int16)
-
-                    # 转换回 bytes 供 feed_web_pcm 使用
                     pcm_bytes = pcm_array.tobytes()
 
-                    # ✅ 关键修复：检查队列是否已满，满了就等待
                     while True:
                         try:
-                            # 尝试非阻塞地放入队列
                             self.listener.feed_web_pcm(pcm_bytes)
-                            break  # 成功放入，继续
-                        except:
-                            # 队列满了，等待一小段时间
-                            time.sleep(0.010)  # 等待 10ms
-                            # ✅ 改进：检查状态是否完全回到 IDLE
+                            break
+                        except Exception:
+                            time.sleep(0.010)
                             current_state = getattr(self.listener, '_tx_state', 0)
                             if current_state == 0:  # IDLE
                                 logger.warning("[播放] 发射已回到 IDLE 状态，中断播放")
                                 break
-                            # 继续尝试
                             continue
 
                     total_frames += 1
-
-                    # 每 50 帧打印一次进度 (1秒)
                     if total_frames % 50 == 0:
                         elapsed = total_frames * 0.020
                         logger.info(f"[播放] 播放进度: {elapsed:.1f}s, {total_frames} 帧")
 
-            # 等待队列清空（确保所有帧都被处理）
-            logger.info(f"[播放] 等待队列清空...")
-            time.sleep(0.5)  # 等待 500ms 让后台线程处理完
+            logger.info("[播放] 等待队列清空...")
+            time.sleep(0.5)
 
             self.listener.stop_transmit_web()
-            logger.info(f"[CMD] 音频播放完成: {original_filepath} (总帧数: {total_frames}, 丢弃: {dropped_frames})")
+            logger.info(f"[CMD] 音频播放完成: {original_filepath} (总帧数: {total_frames})")
+            return True
 
+        except subprocess.CalledProcessError as e:
+            logger.error(f"[播放] ffmpeg 转换失败: {e}")
+            if e.stderr:
+                try:
+                    logger.error(f"[播放] ffmpeg stderr: {e.stderr.decode(errors='ignore')}")
+                except Exception:
+                    pass
+            if hasattr(self, 'listener') and self.listener:
+                try:
+                    self.listener.stop_transmit_web()
+                except Exception:
+                    pass
+            return False
+        except FileNotFoundError:
+            logger.error("[播放] ffmpeg 未安装或未在 PATH 中")
+            if hasattr(self, 'listener') and self.listener:
+                try:
+                    self.listener.stop_transmit_web()
+                except Exception:
+                    pass
+            return False
         except Exception as e:
             logger.error(f"播放音频失败: {e}")
             import traceback
@@ -1397,16 +1411,18 @@ class BotServer:
             if hasattr(self, 'listener') and self.listener:
                 try:
                     self.listener.stop_transmit_web()
-                except:
+                except Exception:
                     pass
+            return False
         finally:
             # 只清理临时文件，不删除原始音频库文件
-            if temp_wav and os.path.exists(temp_wav_path):
+            if temp_wav_path and os.path.exists(temp_wav_path):
                 try:
                     os.remove(temp_wav_path)
                     logger.info(f"[播放] 已删除临时文件: {temp_wav_path}")
-                except:
+                except Exception:
                     pass
+
 
     def _start_ptt_keyboard(self):
         """启动键盘 PTT 监听线程 (使用 GetAsyncKeyState 直接检测物理按键状态)"""

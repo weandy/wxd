@@ -2584,12 +2584,16 @@ class AudioStreamListener:
         try:
             with self._transmit_lock:
                 current_state = getattr(self, '_tx_state', self._TransmitState.IDLE)
-                # ✅ 修复：允许所有非 IDLE 状态都能停止（包括 STOPPING）
-                # 这样可以避免在 STOPPING 状态时重复调用导致的清理逻辑被跳过
                 if current_state == self._TransmitState.IDLE:
                     logger.info("[TX_WEB] 状态已是 IDLE，无需停止")
                     return
-                # 如果不是 STOPPING 状态，设置为 STOPPING
+
+                # 并发保护：STOPPING 阶段只允许一个线程执行完整清理
+                if current_state == self._TransmitState.STOPPING and getattr(self, '_tx_web_stop_in_progress', False):
+                    logger.info("[TX_WEB] 已有停止流程在执行，忽略重复 stop")
+                    return
+
+                self._tx_web_stop_in_progress = True
                 if current_state != self._TransmitState.STOPPING:
                     self._tx_state = self._TransmitState.STOPPING
                 logger.info(f"[TX_WEB] 状态设置为 STOPPING (之前状态: {current_state})")
@@ -2626,10 +2630,14 @@ class AudioStreamListener:
             logger.info("[TX_WEB] 开始结束 TX 录音...")
             duration = self._tx_frame_count * 0.02
             logger.info(f"[TX_WEB] 录音参数: started={self._tx_web_recording_started}, recorder={self._tx_web_recorder is not None}")
-            if self._tx_web_recording_started and self._tx_web_recorder:
+
+            should_finalize_recording = bool(self._tx_web_recording_started and self._tx_web_recorder)
+            # 先落标记，避免并发 stop 重复触发 on_speaker_end
+            self._tx_web_recording_started = False
+
+            if should_finalize_recording:
                 try:
                     logger.info("[TX_WEB] 调用 on_speaker_end...")
-                    # ✅ 直接调用，on_speaker_end 使用异步线程，不会阻塞
                     self._tx_web_recorder.on_speaker_end(
                         self._tx_web_uid, duration, self._tx_frame_count, 0, 0
                     )
@@ -2656,6 +2664,8 @@ class AudioStreamListener:
             with self._transmit_lock:
                 self._tx_state = self._TransmitState.IDLE
                 self._tx_web_mode = False
+        finally:
+            self._tx_web_stop_in_progress = False
 
     def _transmit_loop(self):
         """
