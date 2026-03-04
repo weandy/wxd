@@ -1,8 +1,9 @@
 """
-Bot 通信模块（简化版）
-直接在 Web 服务中实现广播功能
+Bot 通信模块
+通过 HTTP 与 Bot 服务通信
 """
 import logging
+import httpx
 from typing import Optional, Dict, Any
 from pathlib import Path
 
@@ -10,7 +11,12 @@ logger = logging.getLogger(__name__)
 
 
 class BotCommunicator:
-    """Bot 通信器 - 简化版，直接返回模拟结果"""
+    """Bot 通信器 - 通过 HTTP 与 Bot 服务通信"""
+
+    def __init__(self, bot_host: str = "127.0.0.1", bot_port: int = 8765):
+        self.bot_host = bot_host
+        self.bot_port = bot_port
+        self.base_url = f"http://{bot_host}:{bot_port}"
 
     async def send_audio_to_channel(
         self,
@@ -27,23 +33,50 @@ class BotCommunicator:
         Returns:
             发送结果
         """
-        # 检查文件是否存在
-        if not Path(audio_filepath).exists():
-            return {
-                "success": False,
-                "message": f"音频文件不存在: {audio_filepath}"
+        try:
+            # 检查文件是否存在
+            if not Path(audio_filepath).exists():
+                return {
+                    "success": False,
+                    "message": f"音频文件不存在: {audio_filepath}"
+                }
+
+            # 调用 Bot 的音频广播接口
+            url = f"{self.base_url}/api/broadcast/audio"
+            payload = {
+                "audio_path": audio_filepath,
+                "channel_id": channel_id
             }
 
-        # TODO: 实际的广播功能需要与 Bot 服务集成
-        # 目前返回模拟成功结果
-        logger.info(f"[模拟广播] 发送音频到频道 {channel_id}: {audio_filepath}")
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(url, json=payload)
+                result = response.json()
 
-        return {
-            "success": True,
-            "message": f"音频已添加到广播队列（频道 {channel_id}）",
-            "audio_path": audio_filepath,
-            "channel_id": channel_id
-        }
+                if response.status_code == 200 and result.get('success'):
+                    logger.info(f"音频广播成功: {audio_filepath}")
+                    return {
+                        "success": True,
+                        "message": result.get('message', '音频广播成功'),
+                        "data": result
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "message": result.get('message', '广播失败')
+                    }
+
+        except httpx.ConnectError as e:
+            logger.error(f"无法连接到 Bot API 服务: {e}")
+            return {
+                "success": False,
+                "message": f"Bot 服务未运行或无法连接 ({self.base_url})"
+            }
+        except Exception as e:
+            logger.error(f"音频广播失败: {e}")
+            return {
+                "success": False,
+                "message": f"广播失败: {str(e)}"
+            }
 
     async def send_tts_to_channel(
         self,
@@ -62,15 +95,42 @@ class BotCommunicator:
         Returns:
             发送结果
         """
-        # TODO: 实际的 TTS 广播功能
-        logger.info(f"[模拟广播] 发送 TTS 到频道 {channel_id}: {text[:50]}...")
+        try:
+            url = f"{self.base_url}/api/broadcast/tts"
+            payload = {
+                "text": text,
+                "channel_id": channel_id,
+                "voice": voice
+            }
 
-        return {
-            "success": True,
-            "message": f"TTS 已添加到广播队列（频道 {channel_id}）",
-            "text": text,
-            "channel_id": channel_id
-        }
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(url, json=payload)
+                result = response.json()
+
+                if response.status_code == 200 and result.get('success'):
+                    return {
+                        "success": True,
+                        "message": result.get('message', 'TTS 广播成功'),
+                        "data": result
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "message": result.get('message', 'TTS 广播失败')
+                    }
+
+        except httpx.ConnectError as e:
+            logger.error(f"无法连接到 Bot API 服务: {e}")
+            return {
+                "success": False,
+                "message": f"Bot 服务未运行或无法连接"
+            }
+        except Exception as e:
+            logger.error(f"TTS 广播失败: {e}")
+            return {
+                "success": False,
+                "message": f"TTS 广播失败: {str(e)}"
+            }
 
     async def get_bot_status(self) -> Dict[str, Any]:
         """
@@ -79,8 +139,17 @@ class BotCommunicator:
         Returns:
             Bot 状态信息
         """
-        # 简化版，假设 Bot 总是运行中
-        return {"running": True}
+        try:
+            url = f"{self.base_url}/api/status"
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(url)
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    return {"running": False}
+        except Exception as e:
+            logger.debug(f"获取 Bot 状态失败: {e}")
+            return {"running": False}
 
 
 # 单例实例
@@ -91,7 +160,10 @@ def get_bot_communicator() -> BotCommunicator:
     """获取 Bot 通信器单例"""
     global _communicator
     if _communicator is None:
-        _communicator = BotCommunicator()
+        import os
+        bot_host = os.getenv("BOT_HOST", "127.0.0.1")
+        bot_port = int(os.getenv("BOT_PORT", "8765"))
+        _communicator = BotCommunicator(bot_host, bot_port)
     return _communicator
 
 
@@ -105,7 +177,7 @@ async def execute_broadcast_task(
     执行广播任务
 
     Args:
-        task_type: 任务类型 (audio/tts)
+        task_type: 任务类型
         audio_filepath: 音频文件路径（audio 任务）
         tts_text: TTS 文本（tts 任务）
         channel_id: 目标频道ID（可选，默认使用 .env 配置）
@@ -132,9 +204,12 @@ async def execute_broadcast_task(
 
     if channel_id is None:
         # 尝试从环境变量获取
-        config = get_config()
-        if hasattr(config, 'channel') and hasattr(config.channel, 'id'):
-            channel_id = config.channel.id
+        try:
+            config = get_config()
+            if hasattr(config, 'channel') and hasattr(config.channel, 'id'):
+                channel_id = config.channel.id
+        except:
+            pass
 
     if channel_id is None:
         return {
