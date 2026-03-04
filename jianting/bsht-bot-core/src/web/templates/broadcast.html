@@ -606,15 +606,37 @@ async function playAudioItem(itemId, button) {
             const playerRow = document.getElementById(`audio-player-row-${itemId}`);
             const audioElement = document.getElementById(`audio-element-${itemId}`);
 
-            // 构建音频 URL
+            // 构建音频 URL - 根据来源类型和路径处理
             let audioUrl = item.filepath;
-            if (audioUrl.startsWith('/')) {
+
+            // 规范化路径分隔符
+            audioUrl = audioUrl.replace(/\\/g, '/');
+
+            // 根据路径构建正确的 URL
+            if (audioUrl.startsWith('recordings/')) {
+                // 录音文件路径: recordings/YYYY-MM-DD/filename.opus -> /recordings/...
+                audioUrl = '/' + audioUrl;
+            } else if (audioUrl.startsWith('audio_uploads/')) {
+                // 上传文件路径: audio_uploads/filename.opus -> /audio_uploads/...
+                audioUrl = '/' + audioUrl;
+            } else if (audioUrl.startsWith('/')) {
+                // 已经是绝对路径，直接使用
                 audioUrl = audioUrl;
             } else {
-                // 转换为相对路径
-                audioUrl = '/audio_uploads/' + item.filename;
+                // 其他情况，根据来源类型判断
+                if (item.source_type === 'recording') {
+                    // 录音文件，默认放在 recordings 目录
+                    audioUrl = '/recordings/' + item.filename;
+                } else if (item.source_type === 'upload') {
+                    // 上传文件，默认放在 audio_uploads 目录
+                    audioUrl = '/audio_uploads/' + item.filename;
+                } else {
+                    // TTS 等，尝试从 audio_uploads
+                    audioUrl = '/audio_uploads/' + item.filename;
+                }
             }
 
+            console.log('播放音频 URL:', audioUrl);
             audioElement.src = audioUrl;
 
             // 显示播放器
@@ -1021,14 +1043,37 @@ function showAudioPreview(item) {
     const nameElement = document.getElementById('audioPreviewName');
     const player = document.getElementById('audioPreviewPlayer');
 
-    // 构建音频 URL
+    // 构建音频 URL - 根据来源类型和路径处理
     let audioUrl = item.filepath;
-    if (audioUrl.startsWith('/')) {
+
+    // 规范化路径分隔符
+    audioUrl = audioUrl.replace(/\\/g, '/');
+
+    // 根据路径构建正确的 URL
+    if (audioUrl.startsWith('recordings/')) {
+        // 录音文件路径: recordings/YYYY-MM-DD/filename.opus -> /recordings/...
+        audioUrl = '/' + audioUrl;
+    } else if (audioUrl.startsWith('audio_uploads/')) {
+        // 上传文件路径: audio_uploads/filename.opus -> /audio_uploads/...
+        audioUrl = '/' + audioUrl;
+    } else if (audioUrl.startsWith('/')) {
+        // 已经是绝对路径，直接使用
         audioUrl = audioUrl;
     } else {
-        audioUrl = '/audio_uploads/' + item.filename;
+        // 其他情况，根据来源类型判断
+        if (item.source_type === 'recording') {
+            // 录音文件，默认放在 recordings 目录
+            audioUrl = '/recordings/' + item.filename;
+        } else if (item.source_type === 'upload') {
+            // 上传文件，默认放在 audio_uploads 目录
+            audioUrl = '/audio_uploads/' + item.filename;
+        } else {
+            // TTS 等，尝试从 audio_uploads
+            audioUrl = '/audio_uploads/' + item.filename;
+        }
     }
 
+    console.log('预览音频 URL:', audioUrl);
     nameElement.textContent = item.filename;
     player.src = audioUrl;
     container.classList.remove('hidden');
