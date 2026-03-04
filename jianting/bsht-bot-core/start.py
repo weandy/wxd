@@ -39,13 +39,22 @@ class ServiceManager:
     def _stream_output(self, name, proc):
         """实时输出子进程日志"""
         try:
-            for line in iter(proc.stdout.readline, ''):
-                if not line or not self.running:
-                    break
+            # 使用 readline 并设置较短的超时
+            while self.running:
+                line = proc.stdout.readline()
+                if not line:
+                    # 进程结束
+                    if proc.poll() is not None:
+                        break
+                    time.sleep(0.1)
+                    continue
+
                 timestamp = datetime.now().strftime("%H:%M:%S")
+                # 强制刷新输出
                 print(f"[{timestamp}] [{name.upper()}] {line}", end='', flush=True)
-        except Exception:
-            pass
+        except Exception as e:
+            if self.running:
+                print(f"[ERROR] [{name.upper()}] 输出读取异常: {e}\n")
 
     def start_web(self):
         """启动 Web 服务"""
@@ -54,14 +63,19 @@ class ServiceManager:
             return True
 
         print("🌐 启动 Web 服务...")
-        web_cmd = [sys.executable, "web_server.py"]
+        # 使用 -u 参数禁用缓冲
+        env = os.environ.copy()
+        env['PYTHONUNBUFFERED'] = '1'
+
+        web_cmd = [sys.executable, "-u", "web_server.py"]
         web_proc = subprocess.Popen(
             web_cmd,
             cwd=self.root_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             universal_newlines=True,
-            bufsize=1
+            bufsize=1,  # 行缓冲
+            env=env
         )
         self.processes['web'] = web_proc
 
@@ -90,14 +104,19 @@ class ServiceManager:
             return True
 
         print("🤖 启动 Bot 服务...")
-        bot_cmd = [sys.executable, "run_bot.py"]
+        # 使用 -u 参数禁用缓冲
+        env = os.environ.copy()
+        env['PYTHONUNBUFFERED'] = '1'
+
+        bot_cmd = [sys.executable, "-u", "run_bot.py"]
         bot_proc = subprocess.Popen(
             bot_cmd,
             cwd=self.root_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             universal_newlines=True,
-            bufsize=1
+            bufsize=1,  # 行缓冲
+            env=env
         )
         self.processes['bot'] = bot_proc
 

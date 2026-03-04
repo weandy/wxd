@@ -6,6 +6,9 @@ import os
 import sys
 from pathlib import Path
 
+# 强制无缓冲输出
+sys.stdout.reconfigure(line_buffering=True) if hasattr(sys.stdout, 'reconfigure') else None
+
 # 添加项目根目录到 Python 路径
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
