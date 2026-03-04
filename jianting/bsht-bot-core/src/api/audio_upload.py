@@ -8,7 +8,7 @@ from typing import Optional
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
 from pydantic import BaseModel
 
 from src.database import Database
@@ -217,18 +217,14 @@ async def get_supported_formats():
 
 @router.post("/audio-library/record")
 async def save_browser_recording(
-    audio_data: dict = None,
-    filename: str = Form(None),
-    description: Optional[str] = Form(None),
+    request: Request,
     db: Database = Depends(get_db)
 ):
     """
     保存浏览器录制的音频
 
     Args:
-        audio_data: 音频数据（base64 编码）
-        filename: 文件名
-        description: 描述
+        request: FastAPI 请求对象
         db: 数据库实例
 
     Returns:
@@ -237,13 +233,24 @@ async def save_browser_recording(
     import base64
     import sqlite3
 
-    if not audio_data or 'data' not in audio_data:
-        raise HTTPException(status_code=400, detail="无效的音频数据")
+    # 解析 JSON 请求体
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="无效的请求数据")
+
+    audio_data = data.get('data')
+    filename = data.get('filename')
+    description = data.get('description')
+    duration = data.get('duration')
+
+    if not audio_data:
+        raise HTTPException(status_code=400, detail="无效的音频数据：缺少 data 字段")
 
     # 解析 base64 数据
     try:
         # Web Audio API 录音通常是 WebM 格式
-        data_url = audio_data['data']
+        data_url = audio_data
         if ',' in data_url:
             header, base64_data = data_url.split(',', 1)
         else:
