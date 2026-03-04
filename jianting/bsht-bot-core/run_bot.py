@@ -51,6 +51,8 @@ def parse_args():
                         help='启用控制台 PTT 按键说话')
     parser.add_argument('--enable-playback', action='store_true',
                         help='启用音频播放（需要声卡，默认不播放）')
+    parser.add_argument('--scan-history', action='store_true',
+                        help='启动时扫描并补处理历史录音（默认关闭）')
     parser.add_argument('--username', type=str, default=None,
                         help='BSHT 用户名（覆盖 .env）')
     parser.add_argument('--password', type=str, default=None,
@@ -80,7 +82,7 @@ def load_config():
     return get_config()
 
 
-def init_recognizer(config):
+def init_recognizer(config, scan_history: bool = False):
     """初始化识别器"""
     from src.recognizer import RecordingRecognizer, create_recording_callback
     from src.database import get_database
@@ -101,17 +103,20 @@ def init_recognizer(config):
         recognizer.set_pusher(pusher)
         logger.info(f"📲 微信推送已启用 ({len(pusher.targets)} 个目标)")
 
-    # 扫描历史录音
-    logger.info("🔍 扫描历史录音文件...")
+    # 启动时扫描历史录音（默认关闭，避免每次启动触发补扫）
     recordings_dir = os.path.join(ROOT_DIR, 'recordings')
     if not os.path.exists(recordings_dir):
         os.makedirs(recordings_dir)
 
-    added, processed = recognizer.scan_and_register_recordings(recordings_dir, max_count=50)
-    if added > 0 or processed > 0:
-        logger.info(f"   📝 新增 {added} 条记录, 识别 {processed} 个文件")
+    if scan_history:
+        logger.info("🔍 扫描历史录音文件...")
+        added, processed = recognizer.scan_and_register_recordings(recordings_dir, max_count=50)
+        if added > 0 or processed > 0:
+            logger.info(f"   📝 新增 {added} 条记录, 识别 {processed} 个文件")
+        else:
+            logger.info("   ✅ 没有需要处理的历史文件")
     else:
-        logger.info("   ✅ 没有需要处理的历史文件")
+        logger.info("⏭️ 已跳过历史录音扫描（使用 --scan-history 可启用）")
 
     # 创建回调函数
     return recognizer, create_recording_callback(recognizer)
@@ -159,7 +164,7 @@ def main():
 
     if not args.no_asr and config.api.siliconflow_key:
         try:
-            recognizer, recording_callback = init_recognizer(config)
+            recognizer, recording_callback = init_recognizer(config, scan_history=args.scan_history)
             logger.info("✅ 识别器已初始化")
         except Exception as e:
             logger.warning(f"⚠️ 识别器初始化失败: {e}")
