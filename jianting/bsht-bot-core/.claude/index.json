@@ -1,0 +1,213 @@
+{
+  "generated_at": "2026-03-04T23:56:06",
+  "root": {
+    "path": ".",
+    "name": "jianting"
+  },
+  "modules": [
+    {
+      "name": "core-bot",
+      "path": ".",
+      "language": "Python",
+      "entrypoints": [
+        "app.py",
+        "bot_server.py",
+        "src/main.py"
+      ],
+      "interfaces": [
+        "routes/api.py",
+        "ws_handler.py",
+        "web/routes/bot.py",
+        "web/routes/websocket.py"
+      ],
+      "tests": [
+        "tests/test_fixes.py",
+        "dsp_test/test_dsp.py"
+      ],
+      "data": [
+        "database.py",
+        "src/database.py",
+        "web/models/database.py"
+      ],
+      "configs": [
+        "config.py",
+        "src/config.py",
+        "pytest.ini",
+        "requirements.txt"
+      ],
+      "notes": "核心 bot/音频/协议实现 + Web 控制台"
+    },
+    {
+      "name": "src-intelligence",
+      "path": "src",
+      "language": "Python",
+      "entrypoints": [
+        "src/main.py"
+      ],
+      "interfaces": [
+        "src/recognizer.py",
+        "src/smart_processor.py",
+        "src/wx_pusher.py"
+      ],
+      "tests": [],
+      "data": [
+        "src/database.py"
+      ],
+      "configs": [
+        "src/config.py",
+        "src/prompts.md",
+        "src/prompts.json"
+      ],
+      "notes": "识别/DSP/推送链路"
+    },
+    {
+      "name": "bsht-protocol",
+      "path": "src/bsht",
+      "language": "Python",
+      "entrypoints": [
+        "src/bsht/protocol/rtp.py"
+      ],
+      "interfaces": [
+        "src/bsht/protocol/base.py",
+        "src/bsht/protocol/binary.py",
+        "src/bsht/protocol/heartbeat.py"
+      ],
+      "tests": [],
+      "data": [
+        "src/bsht/models/user.py",
+        "src/bsht/models/channel.py",
+        "src/bsht/models/audio.py"
+      ],
+      "configs": [
+        "src/bsht/config.py"
+      ],
+      "notes": "协议/模型/工具"
+    },
+    {
+      "name": "web-console",
+      "path": "web",
+      "language": "Python",
+      "entrypoints": [
+        "app.py",
+        "web/routes/bot.py",
+        "web/routes/websocket.py"
+      ],
+      "interfaces": [
+        "web/routes/bot.py",
+        "web/routes/websocket.py",
+        "ws_handler.py"
+      ],
+      "tests": [],
+      "data": [
+        "web/models/database.py",
+        "web/models/management_db.py"
+      ],
+      "configs": [],
+      "notes": "Flask/SocketIO 管控与权限"
+    },
+    {
+      "name": "dsp-test",
+      "path": "dsp_test",
+      "language": "Python",
+      "entrypoints": [
+        "dsp_test/gui_dsp_test.py",
+        "dsp_test/test_dsp.py"
+      ],
+      "interfaces": [
+        "dsp_test/dsp_chain.py",
+        "dsp_test/noise_reduction.py",
+        "dsp_test/vad.py"
+      ],
+      "tests": [
+        "dsp_test/test_dsp.py"
+      ],
+      "data": [],
+      "configs": [],
+      "notes": "DSP 算法试验与样例音频"
+    }
+  ],
+  "coverage": {
+    "estimated_total_files": 220,
+    "scanned_files": 20,
+    "coverage_percent": 9.1,
+    "notes": "估算基于 glob 文件列表；仅读取关键入口与配置文件"
+  },
+  "ignored": {
+    "rules": [
+      "__pycache__/",
+      "*.pyc",
+      "*.pyo",
+      "*.pyd",
+      ".Python",
+      "env/",
+      "venv/",
+      ".venv/",
+      "*.egg-info/",
+      "dist/",
+      "build/",
+      "recordings/",
+      "audio_*.raw",
+      "*.log",
+      "credentials.json",
+      ".env",
+      "data/",
+      "logs/",
+      ".vscode/",
+      ".idea/",
+      "*.swp",
+      "*.swo",
+      ".pytest_cache/",
+      ".coverage",
+      "htmlcov/",
+      "*.tmp",
+      "*.bak",
+      "debug_audio.bin",
+      "../ham-radio-report/node_modules/",
+      "../ham-radio-report/server/uploads/",
+      "../ham-radio-report/server/reports.db",
+      "*.zip",
+      "*.tar",
+      "*.gz",
+      "node_modules/**",
+      ".git/**",
+      ".github/**",
+      "dist/**",
+      "build/**",
+      ".next/**",
+      "__pycache__/**",
+      "*.lock",
+      "*.bin",
+      "*.pdf",
+      "*.png",
+      "*.jpg",
+      "*.jpeg",
+      "*.gif",
+      "*.mp4",
+      "*.zip",
+      "*.tar",
+      "*.gz"
+    ],
+    "skipped_large_or_binary": [
+      "dsp_test/inputs/test_extreme_noise.wav",
+      "dsp_test/inputs/test_heavy_noise.wav",
+      "dsp_test/inputs/test_noisy.wav",
+      "dsp_test/outputs/test_enhanced.wav",
+      "dsp_test/outputs/test_enhanced_agc.wav",
+      "dsp_test/outputs/test_extreme_noise_processed.wav",
+      "dsp_test/outputs/test_extreme_nr.wav",
+      "dsp_test/outputs/test_extreme_processed.wav",
+      "dsp_test/outputs/test_new_format.wav",
+      "dsp_test/outputs/test_noisereduce.wav",
+      "dsp_test/outputs/test_noisy_processed.wav",
+      "dsp_test/outputs/test_td_processed.wav"
+    ]
+  },
+  "gaps": [
+    "未完整扫描 web/ 下的管理模块与权限中间件",
+    "tests 目录仅抽样读取，未覆盖全部测试用例",
+    "智能识别链路的异常处理与重试策略未深读",
+    "多频道与频道工作器 (multi_channel_bot.py/channel_worker.py) 未读",
+    "音频处理与录音相关模块未深读 (audio_processor.py, channel_recorder.py)"
+  ],
+  "truncated": false
+}
