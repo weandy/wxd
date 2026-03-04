@@ -305,10 +305,9 @@ class BotServer:
 
                         logger.info(f"[API] 收到 TTS 广播请求: {text[:50]}...")
 
-                        # 使用 TTS Worker API 生成语音（同步方式）
+                        # 使用 TTS 生成语音（优先 edge-tts 备用方案）
                         def generate_and_play():
                             try:
-                                import requests
                                 import subprocess
 
                                 # 创建 tts 目录
@@ -320,61 +319,73 @@ class BotServer:
                                 mp3_file = tts_dir / f"{timestamp}.mp3"
                                 wav_file = tts_dir / f"{timestamp}.wav"
 
-                                logger.info(f"[API] 使用 TTS Worker API 生成语音: {voice}")
+                                # 方案1: 尝试使用 TTS Worker API
+                                try:
+                                    import requests
 
-                                # 调用 TTS Worker API
-                                tts_url = f"{self.tts_worker_url}/v1/audio/speech"
-                                payload = {
-                                    "input": text,
-                                    "voice": voice,
-                                    "speed": self.tts_default_speed,
-                                    "pitch": "0",
-                                    "style": "general"
-                                }
+                                    logger.info(f"[API] 尝试使用 TTS Worker API: {voice}")
 
-                                response = requests.post(tts_url, json=payload, timeout=30)
+                                    tts_url = f"{self.tts_worker_url}/v1/audio/speech"
+                                    payload = {
+                                        "input": text,
+                                        "voice": voice,
+                                        "speed": self.tts_default_speed,
+                                        "pitch": "0",
+                                        "style": "general"
+                                    }
 
-                                if response.status_code == 200:
-                                    # 保存 MP3 文件
-                                    with open(mp3_file, 'wb') as f:
-                                        f.write(response.content)
+                                    response = requests.post(tts_url, json=payload, timeout=30)
 
-                                    logger.info(f"[API] TTS MP3 已保存: {mp3_file}")
+                                    if response.status_code == 200 and len(response.content) > 0:
+                                        with open(mp3_file, 'wb') as f:
+                                            f.write(response.content)
+                                        logger.info(f"[API] TTS Worker API 成功: {mp3_file}")
+                                    else:
+                                        raise Exception(f"TTS Worker API 返回空内容 (status={response.status_code})")
 
-                                    # 使用 ffmpeg 转换为 WAV
+                                except Exception as api_error:
+                                    logger.warning(f"[API] TTS Worker API 失败: {api_error}")
+                                    logger.info(f"[API] 使用 edge-tts 作为备用方案")
+
+                                    # 方案2: 使用 edge-tts (备用)
+                                    async def generate_with_edge():
+                                        import edge_tts
+                                        communicate = edge_tts.Communicate(text, voice)
+                                        await communicate.save(str(mp3_file))
+
+                                    loop = asyncio.new_event_loop()
+                                    asyncio.set_event_loop(loop)
                                     try:
-                                        subprocess.run([
-                                            'ffmpeg', '-y', '-i', str(mp3_file),
-                                            '-ar', '16000',  # 采样率 16kHz
-                                            '-ac', '1',      # 单声道
-                                            '-acodec', 'pcm_s16le',  # 16-bit PCM
-                                            str(wav_file)
-                                        ], check=True, capture_output=True)
+                                        loop.run_until_complete(generate_with_edge())
+                                    finally:
+                                        loop.close()
 
-                                        logger.info(f"[API] TTS WAV 已转换: {wav_file}")
+                                    logger.info(f"[API] edge-tts 生成成功: {mp3_file}")
 
-                                        # 播放 WAV 文件
-                                        self._play_audio_file(str(wav_file))
+                                # 使用 ffmpeg 转换为 WAV
+                                try:
+                                    subprocess.run([
+                                        'ffmpeg', '-y', '-i', str(mp3_file),
+                                        '-ar', '16000',  # 采样率 16kHz
+                                        '-ac', '1',      # 单声道
+                                        '-acodec', 'pcm_s16le',  # 16-bit PCM
+                                        str(wav_file)
+                                    ], check=True, capture_output=True)
 
-                                        logger.info(f"[API] TTS 广播完成")
+                                    logger.info(f"[API] TTS WAV 已转换: {wav_file}")
 
-                                        return True
-                                    except subprocess.CalledProcessError as e:
-                                        logger.error(f"[API] ffmpeg 转换失败: {e}")
-                                        logger.error(f"[API] stderr: {e.stderr.decode() if e.stderr else 'N/A'}")
-                                        return False
-                                    except FileNotFoundError:
-                                        logger.error(f"[API] ffmpeg 未找到，请安装 ffmpeg")
-                                        return False
-                                else:
-                                    logger.error(f"[API] TTS API 返回错误: {response.status_code} - {response.text}")
+                                    # 播放 WAV 文件
+                                    self._play_audio_file(str(wav_file))
+
+                                    logger.info(f"[API] TTS 广播完成")
+
+                                    return True
+                                except subprocess.CalledProcessError as e:
+                                    logger.error(f"[API] ffmpeg 转换失败: {e}")
+                                    logger.error(f"[API] stderr: {e.stderr.decode() if e.stderr else 'N/A'}")
                                     return False
-
-                            except Exception as e:
-                                logger.error(f"[API] TTS 生成或播放失败: {e}")
-                                return False
-                                else:
-                                    logger.error(f"[API] TTS API 返回错误: {response.status_code} - {response.text}")
+                                except FileNotFoundError:
+                                    logger.error(f"[API] ffmpeg 未找到，请安装 ffmpeg")
                                     return False
 
                             except Exception as e:
