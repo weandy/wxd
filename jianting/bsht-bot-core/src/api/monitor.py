@@ -295,15 +295,8 @@ async def control_bot(control: BotControl):
             def timeout_handler(signum, frame):
                 raise TimeoutError("Process detection timeout")
 
-            # 只检查前50个进程以提高速度
-            count = 0
-            max_procs = 50
-
+            # 遍历所有进程，检查是否有 Bot
             for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'create_time']):
-                count += 1
-                if count > max_procs:
-                    break
-
                 try:
                     if proc.info['name'] and 'python' in proc.info['name'].lower():
                         cmdline = ' '.join(proc.info.get('cmdline') or [])
