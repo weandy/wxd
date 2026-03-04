@@ -108,6 +108,16 @@ async def login_page(request: Request):
     )
 
 
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page(request: Request):
+    """仪表板页面"""
+    user = require_auth(request)
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {"request": request, "current_user": user}
+    )
+
+
 @app.get("/recordings", response_class=HTMLResponse)
 async def recordings_page(request: Request):
     """录音列表页面"""
