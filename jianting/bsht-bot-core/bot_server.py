@@ -232,8 +232,10 @@ class BotServer:
                 from flask import Flask, request, jsonify
                 from flask_cors import CORS
 
+                logger.info("[Flask] 正在创建 Flask 应用...")
                 app = Flask(__name__)
                 CORS(app)  # 允许跨域请求
+                logger.info("[Flask] CORS 已启用")
 
                 @app.route('/api/broadcast/audio', methods=['POST'])
                 def broadcast_audio():
@@ -419,16 +421,28 @@ class BotServer:
 
                 # 启动 Flask 服务器
                 logger.info("🌐 Bot API 服务器启动中...")
+                logger.info("[Flask] 监听地址: http://127.0.0.1:8765")
                 app.run(host='127.0.0.1', port=8765, debug=False, use_reloader=False)
-            except ImportError:
+            except ImportError as e:
+                logger.error(f"[Flask] 导入错误: {e}")
                 logger.warning("Flask 未安装，Bot API 服务器无法启动")
                 logger.warning("请运行: pip install flask flask-cors")
             except Exception as e:
-                logger.error(f"Bot API 服务器启动失败: {e}")
+                logger.error(f"[Flask] 启动失败: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
 
-        self._api_thread = threading.Thread(target=run_api_server, daemon=True, name="BotAPI")
+        logger.info("[API] 创建 API 服务器线程...")
+        self._api_thread = threading.Thread(target=run_api_server, daemon=False, name="BotAPI")
         self._api_thread.start()
         logger.info("✅ Bot API 服务器线程已启动 (http://127.0.0.1:8765)")
+
+        # 等待一下确保 Flask 启动
+        time.sleep(0.5)
+        if self._api_thread.is_alive():
+            logger.info("✅ Bot API 服务器线程运行中")
+        else:
+            logger.warning("⚠️ Bot API 服务器线程已退出")
 
 
     def _check_connection_health(self):
