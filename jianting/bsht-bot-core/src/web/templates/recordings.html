@@ -317,7 +317,7 @@ function renderRecordings(recordings) {
     showEmpty(false);
 
     table.innerHTML = recordings.map(rec => `
-        <tr class="hover:bg-gray-50">
+        <tr class="hover:bg-gray-50" data-recording-id="${rec.id}">
             <td class="px-4 py-3">
                 <input type="checkbox" class="recording-checkbox" data-id="${rec.id}"
                     ${selectedRecordings.has(rec.id) ? 'checked' : ''}
@@ -328,9 +328,32 @@ function renderRecordings(recordings) {
             <td class="px-4 py-3 text-sm text-gray-900">${Utils.formatDuration(rec.duration)}</td>
             <td class="px-4 py-3 text-sm text-gray-600 max-w-md truncate">${rec.asr_text || rec.content_normalized || '-'}</td>
             <td class="px-4 py-3 text-center">
-                <button onclick="playRecording(${rec.id})" class="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
+                <button onclick="playRecording(${rec.id}, this)" class="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
                     ▶ 播放
                 </button>
+            </td>
+        </tr>
+        <tr id="player-row-${rec.id}" class="hidden">
+            <td colspan="6" class="px-4 py-3 bg-gray-50 border-b">
+                <div class="flex items-center space-x-4">
+                    <button onclick="toggleInlinePlay(${rec.id})" class="p-2 hover:bg-gray-200 rounded" id="inline-play-btn-${rec.id}">
+                        <svg id="inline-play-icon-${rec.id}" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.289l10-6a1.5 1.5 0 000-2.578l-10-6z"/>
+                        </svg>
+                        <svg id="inline-pause-icon-${rec.id}" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/>
+                        </svg>
+                    </button>
+                    <span id="inline-time-${rec.id}" class="text-sm text-gray-600 min-w-[60px]">00:00</span>
+                    <div class="flex-1 h-2 bg-gray-200 rounded-full cursor-pointer relative" onclick="seekInlineAudio(${rec.id}, event)">
+                        <div id="inline-progress-${rec.id}" class="h-2 bg-blue-600 rounded-full" style="width: 0%"></div>
+                    </div>
+                    <span id="inline-duration-${rec.id}" class="text-sm text-gray-600 min-w-[60px]">00:00</span>
+                    <button onclick="closeInlinePlayer(${rec.id})" class="px-2 py-1 text-sm text-gray-600 hover:bg-gray-200 rounded">
+                        关闭
+                    </button>
+                </div>
+                <audio id="inline-audio-${rec.id}" class="hidden"></audio>
             </td>
         </tr>
     `).join('');
@@ -371,30 +394,50 @@ function renderPagination(page, totalPages, total) {
     container.innerHTML = html;
 }
 
-// 播放录音
-async function playRecording(id) {
+// 播放录音 - 内联播放器
+async function playRecording(id, buttonElement) {
     try {
+        // 关闭之前打开的播放器
+        const currentRow = document.querySelector('[id^="player-row-"]:not(.hidden)');
+        if (currentRow) {
+            const oldId = parseInt(currentRow.id.replace('player-row-', ''));
+            closeInlinePlayer(oldId);
+        }
+
         const response = await fetchAPI(`/recordings/${id}`);
         if (response.code === 0 && response.data) {
             const rec = response.data;
 
-            // 设置播放器信息
-            document.getElementById('playerUser').textContent = `用户: ${rec.user_name || rec.user_id || '-'}`;
-            document.getElementById('playerTime').textContent = Utils.formatDateTime(rec.timestamp);
-            document.getElementById('playerText').textContent = rec.asr_text || rec.content_normalized || '暂无识别文本';
+            // 显示播放器行
+            const playerRow = document.getElementById(`player-row-${id}`);
+            playerRow.classList.remove('hidden');
 
             // 设置音频源
-            const audio = document.getElementById('audioPlayer');
+            const audio = document.getElementById(`inline-audio-${id}`);
             audio.src = `/${rec.filepath}`;
 
-            // 显示播放器
-            const modal = document.getElementById('playerModal');
-            modal.classList.remove('hidden');
-            modal.classList.add('flex');
+            // 更新总时长
+            audio.addEventListener('loadedmetadata', () => {
+                document.getElementById(`inline-duration-${id}`).textContent = formatTime(audio.duration);
+            });
 
-            // 播放音频
+            // 更新播放进度
+            audio.addEventListener('timeupdate', () => {
+                const progress = (audio.currentTime / audio.duration) * 100;
+                document.getElementById(`inline-progress-${id}`).style.width = `${progress}%`;
+                document.getElementById(`inline-time-${id}`).textContent = formatTime(audio.currentTime);
+            });
+
+            // 播放结束
+            audio.addEventListener('ended', () => {
+                document.getElementById(`inline-play-icon-${id}`).classList.remove('hidden');
+                document.getElementById(`inline-pause-icon-${id}`).classList.add('hidden');
+            });
+
+            // 立即播放
             audio.play();
-            currentAudio = audio;
+            document.getElementById(`inline-play-icon-${id}`).classList.add('hidden');
+            document.getElementById(`inline-pause-icon-${id}`).classList.remove('hidden');
         }
     } catch (error) {
         console.error('播放失败:', error);
@@ -402,44 +445,39 @@ async function playRecording(id) {
     }
 }
 
-// 关闭播放器
-function closePlayerModal() {
-    const modal = document.getElementById('playerModal');
-    const audio = document.getElementById('audioPlayer');
+// 关闭内联播放器
+function closeInlinePlayer(id) {
+    const playerRow = document.getElementById(`player-row-${id}`);
+    const audio = document.getElementById(`inline-audio-${id}`);
 
     audio.pause();
     audio.src = '';
-    currentAudio = null;
 
-    modal.classList.add('hidden');
-    modal.classList.remove('flex');
+    playerRow.classList.add('hidden');
 }
 
-// 切换播放/暂停
-function togglePlay() {
-    if (!currentAudio) return;
+// 切换内联播放/暂停
+function toggleInlinePlay(id) {
+    const audio = document.getElementById(`inline-audio-${id}`);
 
-    if (currentAudio.paused) {
-        currentAudio.play();
-        document.getElementById('playIcon').classList.add('hidden');
-        document.getElementById('pauseIcon').classList.remove('hidden');
+    if (audio.paused) {
+        audio.play();
+        document.getElementById(`inline-play-icon-${id}`).classList.add('hidden');
+        document.getElementById(`inline-pause-icon-${id}`).classList.remove('hidden');
     } else {
-        currentAudio.pause();
-        document.getElementById('playIcon').classList.remove('hidden');
-        document.getElementById('pauseIcon').classList.add('hidden');
+        audio.pause();
+        document.getElementById(`inline-play-icon-${id}`).classList.remove('hidden');
+        document.getElementById(`inline-pause-icon-${id}`).classList.add('hidden');
     }
 }
 
-// 后退15秒
-function seekBackward() {
-    if (!currentAudio) return;
-    currentAudio.currentTime = Math.max(0, currentAudio.currentTime - 15);
-}
-
-// 前进15秒
-function seekForward() {
-    if (!currentAudio) return;
-    currentAudio.currentTime = Math.min(currentAudio.duration, currentAudio.currentTime + 15);
+// 内联播放器进度跳转
+function seekInlineAudio(id, event) {
+    const audio = document.getElementById(`inline-audio-${id}`);
+    const container = event.currentTarget;
+    const rect = container.getBoundingClientRect();
+    const percent = (event.clientX - rect.left) / rect.width;
+    audio.currentTime = percent * audio.duration;
 }
 
 // 格式化时间

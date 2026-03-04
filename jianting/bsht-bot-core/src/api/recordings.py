@@ -86,18 +86,31 @@ async def get_recordings(
     # 转换为字典
     recording_list = []
     for rec in recordings:
-        # 处理音频路径 - 从绝对路径中提取相对路径
+        # 处理音频路径 - 返回相对于项目根目录的路径
+        # web_server.py 已经挂载了 /recordings 到 recordings 目录
+        # 所以只需要返回 recordins/日期/文件名 的格式
         audio_path = rec.filepath
+
+        # 标准化路径：提取 "recordings/" 之后的部分
+        import os
+        audio_path = os.path.normpath(audio_path)  # 标准化路径
+
         # 查找 "recordings" 在路径中的位置
-        idx = audio_path.find("recordings")
-        if idx >= 0:
+        parts = audio_path.split(os.sep)
+        if "recordings" in parts:
             # 从 "recordings" 开始截取
-            audio_path = audio_path[idx:]
-            # 转换 Windows 反斜杠为正斜杠（URL 需要正斜杠）
-            audio_path = audio_path.replace("\\", "/")
-        else:
-            # 如果路径中没有 recordings，使用文件名
-            audio_path = f"recordings/{rec.filename}"
+            idx = parts.index("recordings")
+            audio_path = "/".join(parts[idx:])  # 用正斜杠连接（URL 标准）
+
+        # 确保 URL 路径格式正确
+        if not audio_path.startswith("recordings/"):
+            # 如果提取失败，使用文件名和日期重建路径
+            from datetime import datetime
+            try:
+                date_str = datetime.fromisoformat(rec.timestamp).strftime("%Y-%m-%d")
+                audio_path = f"recordings/{date_str}/{rec.filename}"
+            except:
+                audio_path = f"recordings/{rec.filename}"
 
         recording_list.append({
             "id": rec.id,
