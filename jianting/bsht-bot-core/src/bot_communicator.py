@@ -36,6 +36,7 @@ class BotCommunicator:
         try:
             # 检查文件是否存在
             if not Path(audio_filepath).exists():
+                logger.error(f"[广播] 音频文件不存在: {audio_filepath}")
                 return {
                     "success": False,
                     "message": f"音频文件不存在: {audio_filepath}"
@@ -48,31 +49,44 @@ class BotCommunicator:
                 "channel_id": channel_id
             }
 
+            logger.info(f"[广播] 发送请求到 Bot API: {url}")
+            logger.info(f"[广播] 请求参数: audio_path={audio_filepath}, channel_id={channel_id}")
+
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(url, json=payload)
-                result = response.json()
+
+                # 记录响应状态
+                logger.info(f"[广播] Bot API 响应状态: {response.status_code}")
+
+                try:
+                    result = response.json()
+                    logger.info(f"[广播] Bot API 响应内容: {result}")
+                except:
+                    result = {"raw_response": response.text}
+                    logger.info(f"[广播] Bot API 响应文本: {response.text}")
 
                 if response.status_code == 200 and result.get('success'):
-                    logger.info(f"音频广播成功: {audio_filepath}")
+                    logger.info(f"[广播] ✅ 音频广播成功: {audio_filepath}")
                     return {
                         "success": True,
                         "message": result.get('message', '音频广播成功'),
                         "data": result
                     }
                 else:
+                    logger.error(f"[广播] ❌ 音频广播失败: {result.get('message', '未知错误')}")
                     return {
                         "success": False,
                         "message": result.get('message', '广播失败')
                     }
 
         except httpx.ConnectError as e:
-            logger.error(f"无法连接到 Bot API 服务: {e}")
+            logger.error(f"[广播] ❌ 无法连接到 Bot API 服务: {e}")
             return {
                 "success": False,
                 "message": f"Bot 服务未运行或无法连接 ({self.base_url})"
             }
         except Exception as e:
-            logger.error(f"音频广播失败: {e}")
+            logger.error(f"[广播] ❌ 音频广播异常: {e}", exc_info=True)
             return {
                 "success": False,
                 "message": f"广播失败: {str(e)}"
@@ -103,30 +117,44 @@ class BotCommunicator:
                 "voice": voice
             }
 
+            logger.info(f"[广播] 发送 TTS 请求到 Bot API: {url}")
+            logger.info(f"[广播] TTS 参数: text='{text[:50]}...', channel_id={channel_id}, voice={voice}")
+
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(url, json=payload)
-                result = response.json()
+
+                # 记录响应状态
+                logger.info(f"[广播] Bot API TTS 响应状态: {response.status_code}")
+
+                try:
+                    result = response.json()
+                    logger.info(f"[广播] Bot API TTS 响应内容: {result}")
+                except:
+                    result = {"raw_response": response.text}
+                    logger.info(f"[广播] Bot API TTS 响应文本: {response.text}")
 
                 if response.status_code == 200 and result.get('success'):
+                    logger.info(f"[广播] ✅ TTS 广播成功: '{text[:50]}...'")
                     return {
                         "success": True,
                         "message": result.get('message', 'TTS 广播成功'),
                         "data": result
                     }
                 else:
+                    logger.error(f"[广播] ❌ TTS 广播失败: {result.get('message', '未知错误')}")
                     return {
                         "success": False,
                         "message": result.get('message', 'TTS 广播失败')
                     }
 
         except httpx.ConnectError as e:
-            logger.error(f"无法连接到 Bot API 服务: {e}")
+            logger.error(f"[广播] ❌ 无法连接到 Bot API 服务: {e}")
             return {
                 "success": False,
                 "message": f"Bot 服务未运行或无法连接"
             }
         except Exception as e:
-            logger.error(f"TTS 广播失败: {e}")
+            logger.error(f"[广播] ❌ TTS 广播异常: {e}", exc_info=True)
             return {
                 "success": False,
                 "message": f"TTS 广播失败: {str(e)}"
