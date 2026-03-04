@@ -232,11 +232,16 @@ async def save_browser_recording(
     """
     import base64
     import sqlite3
+    import logging
+
+    logger = logging.getLogger(__name__)
 
     # 解析 JSON 请求体
     try:
         data = await request.json()
-    except Exception:
+        logger.info(f"[录音保存] 收到请求数据: keys={list(data.keys())}")
+    except Exception as e:
+        logger.error(f"[录音保存] JSON 解析失败: {e}")
         raise HTTPException(status_code=400, detail="无效的请求数据")
 
     audio_data = data.get('data')
@@ -244,7 +249,10 @@ async def save_browser_recording(
     description = data.get('description')
     duration = data.get('duration')
 
+    logger.info(f"[录音保存] filename={filename}, duration={duration}, has_data={bool(audio_data)}")
+
     if not audio_data:
+        logger.error("[录音保存] 缺少 audio_data")
         raise HTTPException(status_code=400, detail="无效的音频数据：缺少 data 字段")
 
     # 解析 base64 数据
@@ -253,11 +261,15 @@ async def save_browser_recording(
         data_url = audio_data
         if ',' in data_url:
             header, base64_data = data_url.split(',', 1)
+            logger.info(f"[录音保存] 数据格式: {header[:50]}...")
         else:
             base64_data = data_url
+            logger.info(f"[录音保存] 纯 base64 数据")
 
         file_content = base64.b64decode(base64_data)
+        logger.info(f"[录音保存] 解码成功: {len(file_content)} bytes")
     except Exception as e:
+        logger.error(f"[录音保存] base64 解码失败: {e}")
         raise HTTPException(status_code=400, detail=f"音频数据解码失败: {str(e)}")
 
     if len(file_content) > MAX_FILE_SIZE:
@@ -277,16 +289,20 @@ async def save_browser_recording(
 
     # 保存文件
     file_path = UPLOAD_DIR / filename
+    logger.info(f"[录音保存] 保存文件到: {file_path}")
     try:
         with open(file_path, 'wb') as f:
             f.write(file_content)
+        logger.info(f"[录音保存] 文件保存成功")
     except Exception as e:
+        logger.error(f"[录音保存] 文件保存失败: {e}")
         raise HTTPException(status_code=500, detail=f"文件保存失败: {str(e)}")
 
     # 获取音频时长
-    duration = audio_data.get('duration')
+    duration = data.get('duration')  # 修正：从原始 data 获取，不是 audio_data
 
     # 保存到数据库
+    logger.info(f"[录音保存] 开始保存到数据库...")
     conn = sqlite3.connect(db.db_path)
     cursor = conn.cursor()
 
@@ -310,6 +326,7 @@ async def save_browser_recording(
 
         item_id = cursor.lastrowid
         conn.commit()
+        logger.info(f"[录音保存] 数据库保存成功: id={item_id}")
 
         return {
             "code": 0,
@@ -322,6 +339,9 @@ async def save_browser_recording(
             }
         }
     except Exception as e:
+        logger.error(f"[录音保存] 数据库保存失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         conn.rollback()
         if file_path.exists():
             file_path.unlink()
