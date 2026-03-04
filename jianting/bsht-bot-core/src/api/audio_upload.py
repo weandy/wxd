@@ -49,7 +49,7 @@ def get_db():
 
 def get_audio_duration(file_path: str) -> Optional[float]:
     """
-    获取音频时长
+    获取音频时长（支持多种格式）
 
     Args:
         file_path: 音频文件路径
@@ -58,31 +58,51 @@ def get_audio_duration(file_path: str) -> Optional[float]:
         时长（秒），如果无法获取则返回 None
     """
     try:
-        import wave
-        import struct
+        import subprocess
+        import json
 
-        # 尝试用 wave 模块读取（适用于 WAV）
+        # ✅ 方案1: 使用 ffprobe (最准确，支持所有格式)
         try:
+            result = subprocess.run([
+                'ffprobe', '-v', 'quiet',
+                '-show_entries', 'format=duration',
+                '-of', 'json',
+                str(file_path)
+            ], capture_output=True, text=True, timeout=10)
+
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                duration = float(data.get('format', {}).get('duration', 0))
+                if duration > 0:
+                    return duration
+        except (subprocess.SubprocessError, json.JSONDecodeError, ValueError):
+            pass
+
+        # ✅ 方案2: wave 模块 (WAV 格式)
+        try:
+            import wave
             with wave.open(file_path, 'rb') as wav_file:
                 frames = wav_file.getnframes()
                 rate = wav_file.getframerate()
                 duration = frames / float(rate)
-                return duration
+                if duration > 0:
+                    return duration
         except:
             pass
 
-        # 对于其他格式，尝试使用 mutagen（如果安装）
+        # ✅ 方案3: mutagen (备用)
         try:
             from mutagen import File as MutagenFile
             audio_file = MutagenFile(file_path)
             if audio_file is not None and audio_file.info:
-                return audio_file.info.length
+                duration = audio_file.info.length
+                if duration > 0:
+                    return duration
         except ImportError:
             pass
         except:
             pass
 
-        # 如果都失败，返回 None
         return None
     except Exception:
         return None

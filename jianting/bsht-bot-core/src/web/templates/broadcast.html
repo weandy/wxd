@@ -124,6 +124,16 @@
                     <option value="upload">上传</option>
                     <option value="tts">TTS生成</option>
                 </select>
+                <!-- ✅ 批量操作按钮 -->
+                <div id="batchActions" class="hidden items-center space-x-3">
+                    <span class="text-sm text-gray-600">已选择 <strong id="selectedCount">0</strong> 项</span>
+                    <button onclick="batchDeleteAudio()" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm">
+                        🗑️ 批量删除
+                    </button>
+                    <button onclick="clearSelection()" class="px-4 py-2 border rounded-lg hover:bg-gray-50 text-sm">
+                        取消选择
+                    </button>
+                </div>
             </div>
             <div class="flex items-center space-x-3">
                 <button onclick="showUploadModal()" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
@@ -143,6 +153,9 @@
             <table class="w-full">
                 <thead class="bg-gray-50">
                     <tr>
+                        <th class="px-4 py-3 text-left text-sm font-medium text-gray-700 w-12">
+                            <input type="checkbox" id="selectAllAudio" onclick="toggleSelectAll(this)" class="rounded">
+                        </th>
                         <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">文件名</th>
                         <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">来源</th>
                         <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">时长</th>
@@ -153,7 +166,7 @@
                 </thead>
                 <tbody id="audioTable" class="divide-y divide-gray-200">
                     <tr>
-                        <td colspan="6" class="px-4 py-8 text-center text-gray-500">加载中...</td>
+                        <td colspan="7" class="px-4 py-8 text-center text-gray-500">加载中...</td>
                     </tr>
                 </tbody>
             </table>
@@ -536,12 +549,15 @@ function renderAudioItems(items) {
     const table = document.getElementById('audioTable');
 
     if (!items || items.length === 0) {
-        table.innerHTML = `<tr><td colspan="6" class="px-4 py-8 text-center text-gray-500">暂无数据</td></tr>`;
+        table.innerHTML = `<tr><td colspan="7" class="px-4 py-8 text-center text-gray-500">暂无数据</td></tr>`;
         return;
     }
 
     table.innerHTML = items.map(item => `
         <tr class="hover:bg-gray-50" data-audio-id="${item.id}">
+            <td class="px-4 py-3">
+                <input type="checkbox" class="audio-checkbox rounded" value="${item.id}" onchange="updateBatchActions()">
+            </td>
             <td class="px-4 py-3 font-medium text-gray-900">${escapeHtml(item.filename)}</td>
             <td class="px-4 py-3">
                 <span class="px-2 py-1 text-xs rounded-full ${
@@ -576,7 +592,7 @@ function renderAudioItems(items) {
             </td>
         </tr>
         <tr id="audio-player-row-${item.id}" class="hidden">
-            <td colspan="6" class="px-4 py-3 bg-gray-50 border-b">
+            <td colspan="7" class="px-4 py-3 bg-gray-50 border-b">
                 <div class="flex items-center space-x-4">
                     <button onclick="toggleAudioPlay(${item.id})" id="audio-play-btn-${item.id}">
                         <svg class="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 24 24">
@@ -595,6 +611,10 @@ function renderAudioItems(items) {
             </td>
         </tr>
     `).join('');
+
+    // 重置全选复选框
+    document.getElementById('selectAllAudio').checked = false;
+    updateBatchActions();
 }
 
 // 播放音频库文件
@@ -949,6 +969,78 @@ async function deleteAudio(audioId) {
     } catch (error) {
         console.error('删除失败:', error);
         showMessage('删除失败', 'error');
+    }
+}
+
+// ==================== 批量操作功能 ====================
+
+// 全选/取消全选
+function toggleSelectAll(checkbox) {
+    const checkboxes = document.querySelectorAll('.audio-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = checkbox.checked;
+    });
+    updateBatchActions();
+}
+
+// 更新批量操作按钮显示
+function updateBatchActions() {
+    const checkboxes = document.querySelectorAll('.audio-checkbox:checked');
+    const batchActions = document.getElementById('batchActions');
+    const selectedCount = document.getElementById('selectedCount');
+
+    if (checkboxes.length > 0) {
+        batchActions.classList.remove('hidden');
+        batchActions.classList.add('flex');
+        selectedCount.textContent = checkboxes.length;
+    } else {
+        batchActions.classList.add('hidden');
+        batchActions.classList.remove('flex');
+    }
+}
+
+// 清除选择
+function clearSelection() {
+    const checkboxes = document.querySelectorAll('.audio-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = false;
+    });
+    document.getElementById('selectAllAudio').checked = false;
+    updateBatchActions();
+}
+
+// 批量删除
+async function batchDeleteAudio() {
+    const checkboxes = document.querySelectorAll('.audio-checkbox:checked');
+    const ids = Array.from(checkboxes).map(cb => parseInt(cb.value));
+
+    if (ids.length === 0) {
+        showMessage('请选择要删除的音频', 'warning');
+        return;
+    }
+
+    if (!confirm(`确定要删除选中的 ${ids.length} 个音频吗？`)) {
+        return;
+    }
+
+    try {
+        // 批量删除请求
+        const response = await fetchAPI('/audio-library/batch', {
+            method: 'DELETE',
+            body: JSON.stringify({ ids })
+        });
+
+        if (response.code === 0) {
+            showMessage(`成功删除 ${ids.length} 个音频`, 'success');
+            clearSelection();
+            loadAudioItems(currentPageAudio);
+            loadAudioStats();
+        } else {
+            showMessage('批量删除失败: ' + response.message, 'error');
+        }
+    } catch (error) {
+        console.error('批量删除失败:', error);
+        showMessage('批量删除失败: ' + error.message, 'error');
     }
 }
 
@@ -1430,6 +1522,15 @@ function createRecordModal() {
                 </div>
 
                 <div class="space-y-4">
+                    <!-- ✅ 文件名输入（录音前设置） -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">文件名</label>
+                        <input type="text" id="recordFilename"
+                               class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                               placeholder="我的录音_${new Date().toLocaleDateString()}">
+                        <p class="text-xs text-gray-500 mt-1">留空则自动生成</p>
+                    </div>
+
                     <!-- 录音控制 -->
                     <div class="flex items-center justify-center space-x-4 py-4">
                         <button id="recordButton" onclick="toggleRecording()"
@@ -1514,7 +1615,15 @@ async function startRecording() {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-        mediaRecorder = new MediaRecorder(stream);
+        // ✅ 优化：使用 Opus 编码（高质量，无需转码）
+        // Chrome/Edge: audio/webm;codecs=opus
+        // Firefox: audio/webm;codecs=opus
+        // Safari: audio/mp4 或 audio/webm (Safari 14.1+)
+        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+            ? 'audio/webm;codecs=opus'
+            : 'audio/webm';
+
+        mediaRecorder = new MediaRecorder(stream, { mimeType });
         audioChunks = [];
 
         mediaRecorder.ondataavailable = (event) => {
@@ -1524,7 +1633,7 @@ async function startRecording() {
         };
 
         mediaRecorder.onstop = () => {
-            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            const audioBlob = new Blob(audioChunks, { type: mimeType });
             const audioUrl = URL.createObjectURL(audioBlob);
 
             // 显示预览播放器
@@ -1622,6 +1731,24 @@ async function saveRecording() {
         const description = document.getElementById('recordDescription').value;
         const duration = (Date.now() - recordingStartTime) / 1000;
 
+        // ✅ 使用用户输入的文件名，或自动生成
+        let filename = document.getElementById('recordFilename').value.trim();
+        if (!filename) {
+            filename = `录音_${new Date().toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            }).replace(/\//g, '-').replace(/:/g, '-').replace(/,/g, '')}`;
+        }
+        // 确保文件名有扩展名
+        if (!filename.endsWith('.webm')) {
+            filename += '.webm';
+        }
+
         try {
             const response = await fetch('/api/audio-library/record', {
                 method: 'POST',
@@ -1630,7 +1757,7 @@ async function saveRecording() {
                 },
                 body: JSON.stringify({
                     data: base64Data,
-                    filename: `recording_${new Date().toISOString().replace(/[:.]/g, '-')}`,
+                    filename: filename,
                     description: description,
                     duration: duration
                 })
@@ -1647,6 +1774,13 @@ async function saveRecording() {
                 showMessage('保存失败: ' + result.message, 'error');
             }
         } catch (error) {
+            console.error('保存失败:', error);
+            showMessage('保存失败: ' + error.message, 'error');
+        }
+    };
+
+    reader.readAsDataURL(audioBlob);
+}
             console.error('保存失败:', error);
             showMessage('保存失败', 'error');
         }

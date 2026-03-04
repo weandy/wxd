@@ -36,6 +36,11 @@ class AudioLibraryUpdate(BaseModel):
     metadata: Optional[str] = None
 
 
+class BatchDeleteRequest(BaseModel):
+    """批量删除请求"""
+    ids: list[int]
+
+
 # ===== 依赖项 =====
 
 def get_db():
@@ -378,6 +383,44 @@ async def batch_delete_audio_items(item_ids: list[int], db: Database = Depends(g
     """
     import sqlite3
 
+    if not item_ids:
+        raise HTTPException(status_code=400, detail="音频ID列表不能为空")
+
+    conn = sqlite3.connect(db.db_path)
+    cursor = conn.cursor()
+
+    try:
+        placeholders = ','.join(['?' for _ in item_ids])
+        cursor.execute(f"DELETE FROM audio_library WHERE id IN ({placeholders})", item_ids)
+        deleted_count = cursor.rowcount
+        conn.commit()
+
+        return {
+            "code": 0,
+            "message": f"成功删除 {deleted_count} 条音频",
+            "data": {"deleted_count": deleted_count}
+        }
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"批量删除失败: {str(e)}")
+    finally:
+        conn.close()
+
+
+@router.delete("/audio-library/batch")
+async def batch_delete_audio(req: BatchDeleteRequest, db: Database = Depends(get_db)):
+    """
+    批量删除音频库条目（DELETE 方法）
+
+    Args:
+        req: 包含 ids 列表的请求体
+
+    Returns:
+        删除结果
+    """
+    import sqlite3
+
+    item_ids = req.ids
     if not item_ids:
         raise HTTPException(status_code=400, detail="音频ID列表不能为空")
 
