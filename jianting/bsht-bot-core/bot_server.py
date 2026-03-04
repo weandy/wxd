@@ -8,10 +8,16 @@ from bsht_client import BSHTClient, TokenInfo, StatusCode, ChannelConnectionPara
 from pathlib import Path
 
 # 修复 Windows 控制台编码问题
+# Python 3.7+ 使用 reconfigure 方法，避免 detach 导致的多线程日志问题
 if sys.platform == 'win32':
-    import codecs
-    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.detach())
-    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.detach())
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except (AttributeError, OSError):
+        # Python < 3.7 或 reconfigure 不可用时的降级方案
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace', line_buffering=True)
 
 
 def get_reconnect_delay(attempt: int, base: int = 2, max_delay: int = 60, min_delay: int = 2) -> int:
