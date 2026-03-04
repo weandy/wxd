@@ -1259,6 +1259,7 @@ class BotServer:
         import subprocess
         import tempfile
         import os
+        import numpy as np
 
         original_filepath = filepath
         temp_wav = None
@@ -1287,8 +1288,11 @@ class BotServer:
                 filepath = temp_wav_path
                 logger.info(f"[播放] 转换完成")
 
-            self.listener.start_transmit()
-            self._last_packet_time = time.time()  # 更新最后音频时间 (TX)
+            # 使用 Web 模式发射 (不启动本地麦克风)
+            logger.info(f"[播放] 启动 Web 模式发射...")
+            if not self.listener.start_transmit_web():
+                logger.error("[播放] 启动 Web 发射失败")
+                return
 
             # 读取 WAV 文件并播放
             with wave.open(filepath, 'rb') as wf:
@@ -1301,24 +1305,35 @@ class BotServer:
 
                 # 计算帧大小 (20ms @ 采样率)
                 samples_per_frame = int(sample_rate * 0.020)  # 20ms
-                frame_size = samples_per_frame * sampwidth  # 字节数
+                frame_bytes = samples_per_frame * sampwidth  # 字节数
 
-                logger.info(f"[播放] 每帧: {samples_per_frame} samples, {frame_size} bytes")
+                logger.info(f"[播放] 每帧: {samples_per_frame} samples, {frame_bytes} bytes")
 
+                total_frames = 0
                 while True:
                     data = wf.readframes(samples_per_frame)
-                    if not data or len(data) < frame_size:
+                    if not data or len(data) < frame_bytes:
                         break
 
-                    # 每次发送前等待 20ms
-                    if hasattr(self.listener, '_tx_queue'):
-                        self.listener._tx_queue.put(data)
+                    # 转换为 numpy array (期望的格式)
+                    pcm_array = np.frombuffer(data, dtype=np.int16)
 
-                    time.sleep(0.020)  # 20ms per frame
+                    # 转换回 bytes 供 feed_web_pcm 使用
+                    pcm_bytes = pcm_array.tobytes()
+
+                    # 使用 Web PCM 喂食方法
+                    self.listener.feed_web_pcm(pcm_bytes)
+
+                    total_frames += 1
+
+                    # 每 50 帧打印一次进度 (1秒)
+                    if total_frames % 50 == 0:
+                        elapsed = total_frames * 0.020
+                        logger.info(f"[播放] 播放进度: {elapsed:.1f}s, {total_frames} 帧")
 
             # 等待最后的帧发送完毕
-            time.sleep(0.1)
-            self.listener.stop_transmit()
+            time.sleep(0.2)
+            self.listener.stop_transmit_web()
             logger.info(f"[CMD] 音频播放完成: {original_filepath}")
 
         except Exception as e:
@@ -1326,7 +1341,10 @@ class BotServer:
             import traceback
             logger.error(traceback.format_exc())
             if hasattr(self, 'listener') and self.listener:
-                self.listener.stop_transmit()
+                try:
+                    self.listener.stop_transmit_web()
+                except:
+                    pass
         finally:
             # 只清理临时文件，不删除原始音频库文件
             if temp_wav and os.path.exists(temp_wav_path):
