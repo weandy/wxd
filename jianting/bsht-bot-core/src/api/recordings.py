@@ -43,10 +43,16 @@ async def get_recordings(
     page: int = 1,
     page_size: int = 20,
     date: Optional[str] = None,
+    date_from: Optional[str] = None,  # 新增：日期范围开始
+    date_to: Optional[str] = None,    # 新增：日期范围结束
     user_id: Optional[str] = None,
     channel_id: Optional[int] = None,
+    recorder_type: Optional[str] = None,  # 新增：录音类型筛选
     min_duration: Optional[float] = None,
+    signal_type: Optional[str] = None,    # 新增：信号类型筛选
     search: Optional[str] = None,
+    sort_by: str = "timestamp",           # 新增：排序字段
+    sort_order: str = "desc",             # 新增：排序方向
     db: Database = Depends(get_db)
 ):
     """
@@ -56,10 +62,16 @@ async def get_recordings(
         page: 页码
         page_size: 每页数量
         date: 日期筛选 (YYYY-MM-DD)
+        date_from: 日期范围开始 (YYYY-MM-DD)
+        date_to: 日期范围结束 (YYYY-MM-DD)
         user_id: 用户 ID 筛选
         channel_id: 频道 ID 筛选
+        recorder_type: 录音类型筛选 (RX/TX)
         min_duration: 最小时长筛选（秒）
+        signal_type: 信号类型筛选 (CQ/QSO/NOISE/UNKNOWN)
         search: 搜索关键词
+        sort_by: 排序字段 (timestamp/duration/start_time)
+        sort_order: 排序方向 (asc/desc)
         db: 数据库实例
 
     Returns:
@@ -68,103 +80,118 @@ async def get_recordings(
     # 计算偏移量
     offset = (page - 1) * page_size
 
-    # 构建查询参数
-    recognized = None  # 不筛选识别状态
+    # 验证排序字段
+    valid_sort_fields = ["timestamp", "duration", "start_time", "user_name"]
+    if sort_by not in valid_sort_fields:
+        sort_by = "timestamp"
+    if sort_order not in ["asc", "desc"]:
+        sort_order = "desc"
 
-    # 获取录音列表
-    recordings = db.get_recordings(
-        channel_id=channel_id,
-        recognized=recognized,
-        user_id=user_id,
-        date=date,
-        min_duration=min_duration,
-        search=search,
-        limit=page_size,
-        offset=offset
-    )
-
-    # 转换为字典
-    recording_list = []
-    for rec in recordings:
-        # 处理音频路径 - 返回相对于项目根目录的路径
-        # web_server.py 已经挂载了 /recordings 到 recordings 目录
-        # 所以只需要返回 recordins/日期/文件名 的格式
-        audio_path = rec.filepath
-
-        # 标准化路径：提取 "recordings/" 之后的部分
-        import os
-        audio_path = os.path.normpath(audio_path)  # 标准化路径
-
-        # 查找 "recordings" 在路径中的位置
-        parts = audio_path.split(os.sep)
-        if "recordings" in parts:
-            # 从 "recordings" 开始截取
-            idx = parts.index("recordings")
-            audio_path = "/".join(parts[idx:])  # 用正斜杠连接（URL 标准）
-
-        # 确保 URL 路径格式正确
-        if not audio_path.startswith("recordings/"):
-            # 如果提取失败，使用文件名和日期重建路径
-            from datetime import datetime
-            try:
-                date_str = datetime.fromisoformat(rec.timestamp).strftime("%Y-%m-%d")
-                audio_path = f"recordings/{date_str}/{rec.filename}"
-            except:
-                audio_path = f"recordings/{rec.filename}"
-
-        recording_list.append({
-            "id": rec.id,
-            "filename": rec.filename,
-            "filepath": audio_path,  # 使用处理后的相对路径
-            "channel_id": rec.channel_id,
-            "user_id": rec.user_id,
-            "user_name": rec.user_name or rec.user_id,
-            "recorder_type": rec.recorder_type,
-            "duration": rec.duration,
-            "start_time": rec.start_time,
-            "file_size": rec.file_size,
-            "timestamp": rec.timestamp,
-            "recognized": rec.recognized,
-            "asr_text": rec.asr_text,
-            "content_normalized": rec.content_normalized,
-            "signal_type": rec.signal_type,
-            "confidence": rec.confidence
-        })
-
-    # 获取总数 - 需要单独查询以获取正确的总记录数
+    # 使用原生 SQL 查询以支持更多筛选条件
     import sqlite3
     conn = sqlite3.connect(db.db_path)
     cursor = conn.cursor()
 
-    # 构建计数查询（与 get_recordings 相同的筛选条件）
-    count_query = "SELECT COUNT(*) FROM recordings WHERE 1=1"
-    count_params = []
+    # 构建查询
+    query = "SELECT * FROM recordings WHERE 1=1"
+    params = []
 
     if channel_id:
-        count_query += " AND channel_id = ?"
-        count_params.append(channel_id)
+        query += " AND channel_id = ?"
+        params.append(channel_id)
+
+    if recorder_type:
+        query += " AND recorder_type = ?"
+        params.append(recorder_type)
 
     if user_id:
-        count_query += " AND user_id = ?"
-        count_params.append(user_id)
+        query += " AND user_id = ?"
+        params.append(user_id)
 
     if date:
-        count_query += " AND DATE(timestamp) = ?"
-        count_params.append(date)
+        query += " AND DATE(timestamp) = ?"
+        params.append(date)
+    elif date_from:
+        query += " AND DATE(timestamp) >= ?"
+        params.append(date_from)
+        if date_to:
+            query += " AND DATE(timestamp) <= ?"
+            params.append(date_to)
 
     if min_duration:
-        count_query += " AND duration >= ?"
-        count_params.append(min_duration)
+        query += " AND duration >= ?"
+        params.append(min_duration)
+
+    if signal_type:
+        query += " AND signal_type = ?"
+        params.append(signal_type)
 
     if search:
-        count_query += " AND (asr_text LIKE ? OR content_normalized LIKE ?)"
+        query += " AND (asr_text LIKE ? OR content_normalized LIKE ?)"
         search_pattern = f"%{search}%"
-        count_params.append(search_pattern)
-        count_params.append(search_pattern)
+        params.append(search_pattern)
+        params.append(search_pattern)
 
+    # 添加排序
+    query += f" ORDER BY {sort_by} {sort_order.upper()}"
+
+    # 添加分页
+    query += " LIMIT ? OFFSET ?"
+    params.extend([page_size, offset])
+
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+
+    # 获取总数
+    count_query = query.split("ORDER BY")[0].replace("SELECT *", "SELECT COUNT(*)")
+    count_params = params[:-2]  # 排除 LIMIT 和 OFFSET
     cursor.execute(count_query, count_params)
     total = cursor.fetchone()[0]
+
     conn.close()
+
+    # 转换为字典
+    recording_list = []
+    import os
+    from datetime import datetime
+
+    for row in rows:
+        # 处理音频路径
+        audio_path = row[1]  # filepath
+        audio_path = os.path.normpath(audio_path)
+        parts = audio_path.split(os.sep)
+        if "recordings" in parts:
+            idx = parts.index("recordings")
+            audio_path = "/".join(parts[idx:])
+        else:
+            try:
+                timestamp_str = row[10]  # timestamp
+                date_str = datetime.fromisoformat(timestamp_str).strftime("%Y-%m-%d")
+                filename = row[2]  # filename
+                audio_path = f"recordings/{date_str}/{filename}"
+            except:
+                audio_path = f"recordings/{row[2]}"
+
+        recording_list.append({
+            "id": row[0],
+            "filename": row[2],
+            "filepath": audio_path,
+            "channel_id": row[3],
+            "user_id": row[4] or "",
+            "user_name": row[5] or row[4] or "",
+            "recorder_type": row[6] or "",
+            "duration": row[7] or 0.0,
+            "start_time": row[8] or "",
+            "file_size": row[9] or 0,
+            "timestamp": row[10],
+            "recognized": bool(row[11]),
+            "asr_text": row[12] or "",
+            "content_normalized": row[13] or "",
+            "signal_type": row[14] or "",
+            "confidence": row[15] or 0.0,
+            "rms_db": row[16] or 0.0,
+            "snr_db": row[17] or 0.0
+        })
 
     return {
         "code": 0,
@@ -173,7 +200,8 @@ async def get_recordings(
             "recordings": recording_list,
             "total": total,
             "page": page,
-            "page_size": page_size
+            "page_size": page_size,
+            "total_pages": (total + page_size - 1) // page_size
         }
     }
 
@@ -232,6 +260,173 @@ async def get_recordings_stats(db: Database = Depends(get_db)):
             "avg_duration": avg_duration,
             "recognition_rate": round(recognized_count / total * 100, 2) if total > 0 else 0
         }
+    }
+
+
+@router.get("/recordings/stats/detailed")
+async def get_recordings_stats_detailed(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    channel_id: Optional[int] = None,
+    db: Database = Depends(get_db)
+):
+    """
+    获取详细的录音统计信息
+
+    Args:
+        date_from: 日期范围开始 (YYYY-MM-DD)
+        date_to: 日期范围结束 (YYYY-MM-DD)
+        channel_id: 频道 ID 筛选
+        db: 数据库实例
+
+    Returns:
+        详细统计数据
+    """
+    import sqlite3
+    from datetime import datetime, timedelta
+
+    conn = sqlite3.connect(db.db_path)
+    cursor = conn.cursor()
+
+    # 构建筛选条件
+    where_clauses = []
+    params = []
+
+    if date_from:
+        where_clauses.append("DATE(timestamp) >= ?")
+        params.append(date_from)
+
+    if date_to:
+        where_clauses.append("DATE(timestamp) <= ?")
+        params.append(date_to)
+
+    if channel_id:
+        where_clauses.append("channel_id = ?")
+        params.append(channel_id)
+
+    where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+
+    # 基础统计
+    stats = {}
+
+    # 1. 总录音数和总时长
+    cursor.execute(f"SELECT COUNT(*), SUM(duration), AVG(duration) FROM recordings WHERE {where_sql}")
+    row = cursor.fetchone()
+    stats["total"] = {
+        "count": row[0],
+        "total_duration": round(row[1] or 0, 2),
+        "avg_duration": round(row[2] or 0, 2)
+    }
+
+    # 2. 今日录音数
+    today = datetime.now().strftime("%Y-%m-%d")
+    cursor.execute(f"SELECT COUNT(*), SUM(duration) FROM recordings WHERE DATE(timestamp) = ?", (today,))
+    row = cursor.fetchone()
+    stats["today"] = {
+        "count": row[0],
+        "total_duration": round(row[1] or 0, 2)
+    }
+
+    # 3. 识别统计
+    cursor.execute(f"""
+        SELECT
+            COUNT(*) FILTER (WHERE recognized = 1) as recognized,
+            COUNT(*) FILTER (WHERE recognized = 0) as unrecognized,
+            COUNT(*) as total
+        FROM recordings WHERE {where_sql}
+    """)
+    row = cursor.fetchone()
+    stats["recognition"] = {
+        "recognized": row[0],
+        "unrecognized": row[1],
+        "total": row[2],
+        "rate": round(row[0] / row[2] * 100, 2) if row[2] > 0 else 0
+    }
+
+    # 4. 按日期统计（最近7天）
+    cursor.execute(f"""
+        SELECT
+            DATE(timestamp) as date,
+            COUNT(*) as count,
+            SUM(duration) as total_duration
+        FROM recordings WHERE {where_sql}
+        GROUP BY DATE(timestamp)
+        ORDER BY date DESC
+        LIMIT 7
+    """)
+    stats["by_date"] = [
+        {"date": row[0], "count": row[1], "total_duration": round(row[2], 2)}
+        for row in cursor.fetchall()
+    ]
+
+    # 5. 按用户统计（Top 10）
+    cursor.execute(f"""
+        SELECT
+            COALESCE(user_name, user_id) as user_name,
+            user_id,
+            COUNT(*) as count,
+            SUM(duration) as total_duration
+        FROM recordings WHERE {where_sql}
+        GROUP BY user_id, user_name
+        ORDER BY count DESC
+        LIMIT 10
+    """)
+    stats["by_user"] = [
+        {"user_name": row[0], "user_id": row[1], "count": row[2], "total_duration": round(row[3], 2)}
+        for row in cursor.fetchall()
+    ]
+
+    # 6. 按信号类型统计
+    cursor.execute(f"""
+        SELECT
+            COALESCE(signal_type, 'UNKNOWN') as signal_type,
+            COUNT(*) as count
+        FROM recordings WHERE {where_sql}
+        GROUP BY signal_type
+        ORDER BY count DESC
+    """)
+    stats["by_signal_type"] = [
+        {"signal_type": row[0], "count": row[1]}
+        for row in cursor.fetchall()
+    ]
+
+    # 7. 按录音类型统计 (RX/TX)
+    cursor.execute(f"""
+        SELECT
+            COALESCE(recorder_type, 'UNKNOWN') as recorder_type,
+            COUNT(*) as count,
+            SUM(duration) as total_duration
+        FROM recordings WHERE {where_sql}
+        GROUP BY recorder_type
+        ORDER BY count DESC
+    """)
+    stats["by_recorder_type"] = [
+        {"recorder_type": row[0], "count": row[1], "total_duration": round(row[2], 2)}
+        for row in cursor.fetchall()
+    ]
+
+    # 8. 平均音频质量
+    cursor.execute(f"""
+        SELECT
+            AVG(rms_db) as avg_rms,
+            AVG(snr_db) as avg_snr,
+            AVG(confidence) as avg_confidence
+        FROM recordings WHERE {where_sql}
+        AND rms_db IS NOT NULL
+    """)
+    row = cursor.fetchone()
+    stats["audio_quality"] = {
+        "avg_rms_db": round(row[0], 2) if row[0] else 0,
+        "avg_snr_db": round(row[1], 2) if row[1] else 0,
+        "avg_confidence": round(row[2], 2) if row[2] else 0
+    }
+
+    conn.close()
+
+    return {
+        "code": 0,
+        "message": "success",
+        "data": stats
     }
 
 

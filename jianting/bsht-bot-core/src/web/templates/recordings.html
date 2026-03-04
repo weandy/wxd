@@ -4,12 +4,62 @@
 
 {% block content %}
 <div class="mb-6">
-    <h1 class="text-3xl font-bold text-gray-800">🎙️ 录音列表</h1>
-    <p class="text-gray-600 mt-1">查看和播放录音文件</p>
+    <h1 class="text-3xl font-bold text-gray-800">🎙️ 录音存档</h1>
+    <p class="text-gray-600 mt-1">查看和播放录音文件，查看语音转文字结果</p>
+</div>
+
+<!-- 统计卡片 -->
+<div id="statsContainer" class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm text-gray-600">今日录音</p>
+                <p id="statTodayCount" class="text-2xl font-bold text-gray-800">-</p>
+            </div>
+            <div class="text-3xl">📅</div>
+        </div>
+    </div>
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm text-gray-600">总录音数</p>
+                <p id="statTotalCount" class="text-2xl font-bold text-gray-800">-</p>
+            </div>
+            <div class="text-3xl">🎵</div>
+        </div>
+    </div>
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm text-gray-600">总时长</p>
+                <p id="statTotalDuration" class="text-2xl font-bold text-gray-800">-</p>
+            </div>
+            <div class="text-3xl">⏱️</div>
+        </div>
+    </div>
+    <div class="bg-white p-4 rounded-lg shadow">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-sm text-gray-600">识别率</p>
+                <p id="statRecognitionRate" class="text-2xl font-bold text-gray-800">-</p>
+            </div>
+            <div class="text-3xl">🎯</div>
+        </div>
+    </div>
 </div>
 
 <!-- 筛选栏 -->
 <div class="bg-white p-4 rounded-lg shadow mb-6">
+    <div class="flex flex-wrap gap-4 items-center mb-4">
+        <h3 class="text-lg font-medium text-gray-700 flex items-center gap-2">
+            <span>🔍</span> 高级筛选
+        </h3>
+        <button onclick="toggleAdvancedFilters()" class="text-sm text-blue-600 hover:text-blue-800">
+            展开/收起
+        </button>
+    </div>
+
+    <!-- 基础筛选 -->
     <div class="flex flex-wrap gap-4 items-center">
         <!-- 日期筛选 -->
         <div class="flex-1 min-w-[200px]">
@@ -27,6 +77,28 @@
             </select>
         </div>
 
+        <!-- 信号类型筛选 -->
+        <div class="flex-1 min-w-[200px]">
+            <label class="block text-sm font-medium text-gray-700 mb-1">信号类型</label>
+            <select id="signalTypeFilter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <option value="">全部类型</option>
+                <option value="CQ">CQ 呼叫</option>
+                <option value="QSO">QSO 通话</option>
+                <option value="NOISE">噪音</option>
+                <option value="UNKNOWN">未知</option>
+            </select>
+        </div>
+
+        <!-- 录音类型筛选 -->
+        <div class="flex-1 min-w-[200px]">
+            <label class="block text-sm font-medium text-gray-700 mb-1">录音类型</label>
+            <select id="recorderTypeFilter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <option value="">全部</option>
+                <option value="RX">接收 (RX)</option>
+                <option value="TX">发射 (TX)</option>
+            </select>
+        </div>
+
         <!-- 时长筛选 -->
         <div class="flex-1 min-w-[200px]">
             <label class="block text-sm font-medium text-gray-700 mb-1">最小时长</label>
@@ -39,7 +111,44 @@
                 <option value="20">≥ 20秒</option>
             </select>
         </div>
+    </div>
 
+    <!-- 高级筛选 (默认折叠) -->
+    <div id="advancedFilters" class="hidden mt-4 pt-4 border-t border-gray-200">
+        <div class="flex flex-wrap gap-4 items-center">
+            <!-- 日期范围筛选 -->
+            <div class="flex-1 min-w-[200px]">
+                <label class="block text-sm font-medium text-gray-700 mb-1">日期范围 (从)</label>
+                <input type="date" id="dateFromFilter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div class="flex-1 min-w-[200px]">
+                <label class="block text-sm font-medium text-gray-700 mb-1">日期范围 (到)</label>
+                <input type="date" id="dateToFilter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+
+            <!-- 排序字段 -->
+            <div class="flex-1 min-w-[200px]">
+                <label class="block text-sm font-medium text-gray-700 mb-1">排序字段</label>
+                <select id="sortByFilter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <option value="timestamp">时间</option>
+                    <option value="duration">时长</option>
+                    <option value="user_name">用户</option>
+                </select>
+            </div>
+
+            <!-- 排序方向 -->
+            <div class="flex-1 min-w-[200px]">
+                <label class="block text-sm font-medium text-gray-700 mb-1">排序方向</label>
+                <select id="sortOrderFilter" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                    <option value="desc">降序</option>
+                    <option value="asc">升序</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- 搜索和操作 -->
+    <div class="flex flex-wrap gap-4 items-center mt-4 pt-4 border-t border-gray-200">
         <!-- 搜索框 -->
         <div class="flex-1 min-w-[300px]">
             <label class="block text-sm font-medium text-gray-700 mb-1">搜索</label>
@@ -56,9 +165,12 @@
             </div>
         </div>
 
-        <!-- 批量操作按钮 -->
-        <div class="self-end">
-            <button id="batchDeleteBtn" class="hidden px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 mr-2">
+        <!-- 操作按钮 -->
+        <div class="self-end flex gap-2">
+            <button id="refreshBtn" class="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700">
+                🔄 刷新
+            </button>
+            <button id="batchDeleteBtn" class="hidden px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
                 🗑️ 批量删除
             </button>
         </div>
@@ -90,7 +202,9 @@
                     </th>
                     <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">时间</th>
                     <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">用户</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">类型</th>
                     <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">时长</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">信号类型</th>
                     <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">识别文本</th>
                     <th class="px-4 py-3 text-center text-sm font-medium text-gray-700 w-32">播放</th>
                 </tr>
@@ -185,18 +299,25 @@
 {% block scripts %}
 <script>
 let currentPage = 1;
-let pageSize = 10;
+let pageSize = 20;  // 增加每页显示数量
 let currentFilter = {
     date: '',
     user: '',
     duration: '',
-    search: ''
+    search: '',
+    signalType: '',
+    recorderType: '',
+    dateFrom: '',
+    dateTo: '',
+    sortBy: 'timestamp',
+    sortOrder: 'desc'
 };
 let selectedRecordings = new Set();
 let currentAudio = null;
 
 // 页面加载时初始化
 document.addEventListener('DOMContentLoaded', () => {
+    loadStatistics();
     loadDates();
     loadUsers();
     loadRecordings(1);
@@ -232,7 +353,69 @@ document.addEventListener('DOMContentLoaded', () => {
         currentFilter.duration = e.target.value;
         loadRecordings(1);
     });
+
+    // 信号类型筛选事件
+    document.getElementById('signalTypeFilter').addEventListener('change', (e) => {
+        currentFilter.signalType = e.target.value;
+        loadRecordings(1);
+    });
+
+    // 录音类型筛选事件
+    document.getElementById('recorderTypeFilter').addEventListener('change', (e) => {
+        currentFilter.recorderType = e.target.value;
+        loadRecordings(1);
+    });
+
+    // 日期范围筛选事件
+    document.getElementById('dateFromFilter').addEventListener('change', (e) => {
+        currentFilter.dateFrom = e.target.value;
+        loadRecordings(1);
+    });
+
+    document.getElementById('dateToFilter').addEventListener('change', (e) => {
+        currentFilter.dateTo = e.target.value;
+        loadRecordings(1);
+    });
+
+    // 排序筛选事件
+    document.getElementById('sortByFilter').addEventListener('change', (e) => {
+        currentFilter.sortBy = e.target.value;
+        loadRecordings(1);
+    });
+
+    document.getElementById('sortOrderFilter').addEventListener('change', (e) => {
+        currentFilter.sortOrder = e.target.value;
+        loadRecordings(1);
+    });
+
+    // 刷新按钮
+    document.getElementById('refreshBtn').addEventListener('click', () => {
+        loadStatistics();
+        loadRecordings(currentPage);
+    });
 });
+
+// 加载统计信息
+async function loadStatistics() {
+    try {
+        const response = await fetchAPI('/recordings/stats');
+        if (response.code === 0 && response.data) {
+            const stats = response.data;
+            document.getElementById('statTodayCount').textContent = stats.today || 0;
+            document.getElementById('statTotalCount').textContent = stats.total || 0;
+            document.getElementById('statTotalDuration').textContent = (stats.total_duration_minutes || 0) + ' 分钟';
+            document.getElementById('statRecognitionRate').textContent = (stats.recognition_rate || 0) + '%';
+        }
+    } catch (error) {
+        console.error('加载统计失败:', error);
+    }
+}
+
+// 切换高级筛选
+function toggleAdvancedFilters() {
+    const filters = document.getElementById('advancedFilters');
+    filters.classList.toggle('hidden');
+}
 
 // 加载日期列表
 async function loadDates() {
@@ -240,6 +423,8 @@ async function loadDates() {
         const response = await fetchAPI('/recordings/dates/list');
         if (response.code === 0 && response.data.dates) {
             const select = document.getElementById('dateFilter');
+            // 保留第一个选项
+            select.innerHTML = '<option value="">全部日期</option>';
             response.data.dates.forEach(date => {
                 const option = document.createElement('option');
                 option.value = date;
@@ -258,6 +443,7 @@ async function loadUsers() {
         const response = await fetchAPI('/recordings/users/list');
         if (response.code === 0 && response.data.users) {
             const select = document.getElementById('userFilter');
+            select.innerHTML = '<option value="">全部用户</option>';
             response.data.users.forEach(user => {
                 const option = document.createElement('option');
                 option.value = user.user_id;
@@ -278,19 +464,25 @@ async function loadRecordings(page) {
     try {
         const params = new URLSearchParams({
             page: page,
-            page_size: pageSize
+            page_size: pageSize,
+            sort_by: currentFilter.sortBy,
+            sort_order: currentFilter.sortOrder
         });
 
         if (currentFilter.date) params.append('date', currentFilter.date);
         if (currentFilter.user) params.append('user_id', currentFilter.user);
         if (currentFilter.duration) params.append('min_duration', currentFilter.duration);
         if (currentFilter.search) params.append('search', currentFilter.search);
+        if (currentFilter.signalType) params.append('signal_type', currentFilter.signalType);
+        if (currentFilter.recorderType) params.append('recorder_type', currentFilter.recorderType);
+        if (currentFilter.dateFrom) params.append('date_from', currentFilter.dateFrom);
+        if (currentFilter.dateTo) params.append('date_to', currentFilter.dateTo);
 
         const response = await fetchAPI(`/recordings?${params.toString()}`);
 
         if (response.code === 0 && response.data) {
             renderRecordings(response.data.recordings || []);
-            renderPagination(page, Math.ceil((response.data.total || 0) / pageSize), response.data.total || 0);
+            renderPagination(page, response.data.total_pages || 1, response.data.total || 0);
         } else {
             showEmpty(true);
         }
@@ -316,7 +508,22 @@ function renderRecordings(recordings) {
 
     showEmpty(false);
 
-    table.innerHTML = recordings.map(rec => `
+    table.innerHTML = recordings.map(rec => {
+        // 信号类型标签
+        const signalTypeBadge = getSignalTypeBadge(rec.signal_type);
+
+        // 录音类型标签
+        const recorderTypeBadge = rec.recorder_type ?
+            `<span class="px-2 py-1 text-xs rounded ${rec.recorder_type === 'TX' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}">${rec.recorder_type}</span>` :
+            '-';
+
+        // 识别文本显示（带截断和高亮）
+        const displayText = rec.asr_text || rec.content_normalized || '-';
+        const isRecognized = rec.recognized;
+        const confidenceDisplay = isRecognized && rec.confidence ?
+            `<span class="text-xs text-gray-500 ml-2">(${(rec.confidence * 100).toFixed(0)}%)</span>` : '';
+
+        return `
         <tr class="hover:bg-gray-50" data-recording-id="${rec.id}">
             <td class="px-4 py-3">
                 <input type="checkbox" class="recording-checkbox" data-id="${rec.id}"
@@ -325,16 +532,49 @@ function renderRecordings(recordings) {
             </td>
             <td class="px-4 py-3 text-sm text-gray-900">${Utils.formatDateTime(rec.timestamp)}</td>
             <td class="px-4 py-3 text-sm text-gray-900">${rec.user_name || rec.user_id || '-'}</td>
+            <td class="px-4 py-3 text-sm">${recorderTypeBadge}</td>
             <td class="px-4 py-3 text-sm text-gray-900">${Utils.formatDuration(rec.duration)}</td>
-            <td class="px-4 py-3 text-sm text-gray-600 max-w-md truncate">${rec.asr_text || rec.content_normalized || '-'}</td>
+            <td class="px-4 py-3 text-sm">${signalTypeBadge}</td>
+            <td class="px-4 py-3 text-sm text-gray-600 max-w-md">
+                <div class="truncate" title="${displayText}">${displayText}</div>
+                ${confidenceDisplay}
+            </td>
             <td class="px-4 py-3 text-center">
                 <button onclick="playRecording(${rec.id}, this)" class="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">
                     ▶ 播放
                 </button>
             </td>
         </tr>
+        <tr id="detail-row-${rec.id}" class="hidden">
+            <td colspan="8" class="px-4 py-3 bg-gray-50 border-b">
+                <div class="grid grid-cols-2 gap-4">
+                    <!-- 左侧：音频质量 -->
+                    <div>
+                        <h4 class="text-sm font-medium text-gray-700 mb-2">音频质量</h4>
+                        <div class="text-sm text-gray-600 space-y-1">
+                            <p>RMS: ${rec.rms_db ? rec.rms_db.toFixed(2) + ' dB' : '-'}</p>
+                            <p>SNR: ${rec.snr_db ? rec.snr_db.toFixed(2) + ' dB' : '-'}</p>
+                        </div>
+                    </div>
+                    <!-- 右侧：识别结果详情 -->
+                    <div>
+                        <h4 class="text-sm font-medium text-gray-700 mb-2">识别结果</h4>
+                        <div class="text-sm text-gray-600 space-y-1">
+                            <p><strong>原文:</strong> ${rec.asr_text || '-'}</p>
+                            <p><strong>规范化:</strong> ${rec.content_normalized || '-'}</p>
+                        </div>
+                    </div>
+                </div>
+                <!-- 展开详情按钮 -->
+                <div class="mt-2">
+                    <button onclick="toggleDetailRow(${rec.id})" class="text-sm text-blue-600 hover:text-blue-800">
+                        收起详情
+                    </button>
+                </div>
+            </td>
+        </tr>
         <tr id="player-row-${rec.id}" class="hidden">
-            <td colspan="6" class="px-4 py-3 bg-gray-50 border-b">
+            <td colspan="8" class="px-4 py-3 bg-blue-50 border-b">
                 <div class="flex items-center space-x-4">
                     <button onclick="toggleInlinePlay(${rec.id})" class="p-2 hover:bg-gray-200 rounded" id="inline-play-btn-${rec.id}">
                         <svg id="inline-play-icon-${rec.id}" class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -356,9 +596,28 @@ function renderRecordings(recordings) {
                 <audio id="inline-audio-${rec.id}" class="hidden"></audio>
             </td>
         </tr>
-    `).join('');
+    `;
+    }).join('');
 
     updateBatchButtons();
+}
+
+// 获取信号类型标签
+function getSignalTypeBadge(signalType) {
+    const badges = {
+        'CQ': 'bg-purple-100 text-purple-800',
+        'QSO': 'bg-green-100 text-green-800',
+        'NOISE': 'bg-gray-100 text-gray-800',
+        'UNKNOWN': 'bg-yellow-100 text-yellow-800'
+    };
+    const className = badges[signalType] || 'bg-gray-100 text-gray-800';
+    return `<span class="px-2 py-1 text-xs rounded ${className}">${signalType || 'UNKNOWN'}</span>`;
+}
+
+// 切换详情行
+function toggleDetailRow(id) {
+    const detailRow = document.getElementById(`detail-row-${id}`);
+    detailRow.classList.toggle('hidden');
 }
 
 // 渲染分页
@@ -366,7 +625,6 @@ function renderPagination(page, totalPages, total) {
     const container = document.getElementById('paginationContainer');
 
     if (totalPages <= 1) {
-        // 即使只有1页，也显示总记录数
         container.innerHTML = `<p class="text-center text-gray-500 text-sm mt-4">共 ${total} 条记录，第 1/1 页</p>`;
         return;
     }
@@ -402,6 +660,12 @@ async function playRecording(id, buttonElement) {
         if (currentRow) {
             const oldId = parseInt(currentRow.id.replace('player-row-', ''));
             closeInlinePlayer(oldId);
+        }
+
+        // 显示详情行
+        const detailRow = document.getElementById(`detail-row-${id}`);
+        if (detailRow) {
+            detailRow.classList.remove('hidden');
         }
 
         const response = await fetchAPI(`/recordings/${id}`);
@@ -451,12 +715,14 @@ async function playRecording(id, buttonElement) {
 // 关闭内联播放器
 function closeInlinePlayer(id) {
     const playerRow = document.getElementById(`player-row-${id}`);
+    const detailRow = document.getElementById(`detail-row-${id}`);
     const audio = document.getElementById(`inline-audio-${id}`);
 
     audio.pause();
     audio.src = '';
 
-    playerRow.classList.add('hidden');
+    if (playerRow) playerRow.classList.add('hidden');
+    if (detailRow) detailRow.classList.add('hidden');
 }
 
 // 切换内联播放/暂停
@@ -628,6 +894,7 @@ document.getElementById('batchDeleteBtn')?.addEventListener('click', async () =>
         if (response.code === 0) {
             showMessage(`成功删除 ${response.data.deleted_count} 条录音`, 'success');
             selectedRecordings.clear();
+            loadStatistics();  // 刷新统计
             loadRecordings(currentPage);
         } else {
             showMessage(response.message || '删除失败', 'error');
