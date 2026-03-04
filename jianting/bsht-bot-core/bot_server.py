@@ -1,6 +1,7 @@
 import time
 import sys
 import os
+import asyncio
 import logging
 import threading
 from bsht_client import BSHTClient, TokenInfo, StatusCode, ChannelConnectionParams, AudioStreamListener
@@ -293,7 +294,6 @@ class BotServer:
                         # 使用 edge-tts 生成语音
                         async def generate_and_play():
                             try:
-                                import asyncio
                                 import edge_tts
 
                                 # 创建临时文件
